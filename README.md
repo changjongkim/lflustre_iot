@@ -4,11 +4,12 @@
 
 (하이퍼컨버지드 IoT 엣지 클러스터에서 LLM 서빙과 적응 학습을 위한 간섭 인지 스토리지 할당 — IFLustre 확장 연구 설계 문서)
 
-> **시스템 이름:** CoStripe. 연산과 그 연산이 쓰는 데이터를 같은 노드에 함께 배치(co-placement)한다는 설계 원칙과, Lustre의 striping(파일 레이아웃) 제어를 결합했다는 뜻이다.
+> **시스템 이름:** CoStripe. 연산과 그 연산이 쓰는 데이터를 같은 노드에 함께 배치(co-placement)한다는 설계 원칙과 Lustre의 striping(파일 레이아웃) 제어를 결합했다는 뜻이다.
 > **상태:** 연구 설계 단계
 > **대상 장비:** NVIDIA Jetson Orin Nano 8GB × 5, 1GbE
 > **관리:** 설계가 바뀌면 이 문서를 수정하고 커밋한다. "추정"으로 표시한 수치는 4장의 실험으로 확인한 뒤 갱신한다.
-> **구성:** 이 문서는 논문의 흐름을 따른다. 1장 Introduction → 2장 Background and Related Work → 3장 Design(문제 정의, 해결 대상, 해결 방법, 통합 구성) → 4장 Experiment Plan.
+> **구성:** 이 문서는 논문의 흐름을 따른다.
+> 1장 Introduction → 2장 Background and Related Work → 3장 Design(문제 정의, 해결 대상, 해결 방법, 통합 구성) → 4장 Experiment Plan
 
 ---
 
@@ -21,10 +22,11 @@
   - [2.2 엣지 하드웨어: Jetson Orin Nano](#22-엣지-하드웨어-jetson-orin-nano)
   - [2.3 IoT 애플리케이션에서의 LLM 활용](#23-iot-애플리케이션에서의-llm-활용)
   - [2.4 LLM 추론과 학습의 구조, 그리고 저장 I/O](#24-llm-추론과-학습의-구조-그리고-저장-io)
-  - [2.5 분산 파일 시스템과 Lustre](#25-분산-파일-시스템과-lustre)
-  - [2.6 원 연구: IFLustre](#26-원-연구-iflustre)
-  - [2.7 관련 연구](#27-관련-연구)
-  - [2.8 종합 비교와 연구 공백](#28-종합-비교와-연구-공백)
+  - [2.5 Content-addressed 저장](#25-content-addressed-저장)
+  - [2.6 분산 파일 시스템과 Lustre](#26-분산-파일-시스템과-lustre)
+  - [2.7 원 연구: IFLustre](#27-원-연구-iflustre)
+  - [2.8 관련 연구](#28-관련-연구)
+  - [2.9 종합 비교와 연구 공백](#29-종합-비교와-연구-공백)
 - [3. Design](#3-design)
   - [3.1 대상 환경](#31-대상-환경)
   - [3.2 대상 시나리오와 워크로드](#32-대상-시나리오와-워크로드)
@@ -45,12 +47,13 @@
   - [4.6 예상 그림과 표](#46-예상-그림과-표)
 - [5. 논문 구성 대응](#5-논문-구성-대응)
 - [6. 일정](#6-일정)
-- [7. 리스크](#7-리스크)
+- [7. 리스크와 예상 반론](#7-리스크와-예상-반론)
 - [8. 미결 사항](#8-미결-사항)
 - [9. 참고 문헌](#9-참고-문헌)
 - [부록 A. 크기와 메모리 계산](#부록-a-크기와-메모리-계산)
 - [부록 B. 플래너 입출력 예시](#부록-b-플래너-입출력-예시)
-- [부록 C. 저장소의 기존 코드](#부록-c-저장소의-기존-코드)
+- [부록 C. 주소와 저장 경로 규격](#부록-c-주소와-저장-경로-규격)
+- [부록 D. 저장소의 기존 코드](#부록-d-저장소의-기존-코드)
 - [변경 이력](#변경-이력)
 
 ---
@@ -59,121 +62,111 @@
 
 ### 0.1 국문 요약
 
-IoT 애플리케이션은 센서, 음향, 로그 데이터를 해석하기 위해 LLM을 사용하기 시작했다. 지연 시간, 네트워크 대역폭, 데이터 반출 제한 때문에 이 처리는 데이터가 생성되는 엣지 사이트에서 수행하는 것이 바람직하다. 그러나 엣지 장치의 자원은 작다. 대상 장비인 Jetson Orin Nano는 CPU와 GPU가 공유하는 8GB 메모리를 가지며, 4B급 LLM의 FP16 가중치(약 8GB)도 한 대에 올릴 수 없다. 따라서 엣지 사이트는 여러 장치로 소규모 클러스터를 구성하고 모델 layer를 나누어 파이프라인으로 추론한다. 장치들은 가중치, KV cache, 적응 학습 체크포인트를 공유 분산 파일 시스템(DFS)으로 주고받는다.
+**배경.** IoT 애플리케이션은 센서, 음향, 로그 데이터를 해석하기 위해 LLM을 사용하기 시작했다. 지연 시간, 네트워크 대역폭, 데이터 반출 제한 때문에 이 처리는 데이터가 생성되는 엣지 사이트에서 수행하는 것이 바람직하다.
 
-이 구성에서는 각 장치가 LLM 연산 노드이면서 동시에 DFS 스토리지 서버가 된다(하이퍼컨버지드 구성). 8GB 메모리와 1GbE 네트워크 환경에서는 저장 I/O가 같은 장치의 LLM 연산에 다음 영향을 준다.
-1. **메모리 용량:** 파일 시스템 캐시가 모델과 KV cache가 쓸 메모리를 차지한다. Lustre client 캐시의 기본 상한은 RAM의 1/2이다.
-2. **CPU:** 6개 코어를 OSS 처리, 네트워크 처리, LLM 런타임이 나눠 쓴다.
-3. **메모리 대역폭:** decode가 사용하는 메모리 대역폭을 저장 I/O의 데이터 복사가 나눠 쓴다.
-4. **네트워크:** 1GbE를 activation 전달, 원격 KV 읽기, 체크포인트 복제가 나눠 쓴다.
+**엣지 장치의 한계.** 대상 장비인 Jetson Orin Nano는 CPU와 GPU가 공유하는 8GB 메모리를 가지며, 4B급 LLM의 FP16 가중치(약 8GB)도 한 대에 올릴 수 없다. 따라서 엣지 사이트는 여러 장치로 소규모 클러스터를 구성하고 모델 layer를 나누어 파이프라인으로 추론한다. 이 구성에서는 각 장치가 LLM 연산 노드이면서 동시에 공유 분산 파일 시스템(DFS)의 스토리지 서버가 된다(하이퍼컨버지드 구성).
 
-파이프라인 병렬 추론에서는 한 장치의 지연이 서비스 전체 처리량을 결정하므로 이 영향이 커진다.
+**두 가지 문제.**
+1. **IoT 질의에서는 기존 KV 재사용이 잘 동작하지 않는다.** IoT 질의는 최근 센서·로그 구간을 컨텍스트로 포함한다. 이 구간이 시간에 따라 밀리면(슬라이딩 윈도우) 앞부분 일치(prefix)를 기준으로 하는 KV 재사용이 깨지고, 질의마다 수천 토큰을 다시 계산해야 한다.
+2. **저장 I/O가 같은 장치의 LLM 연산을 방해한다.** 8GB 메모리와 1GbE 네트워크에서 저장 I/O는 같은 장치의 LLM 연산과 다음 자원을 놓고 경쟁한다. 파이프라인에서는 한 장치의 지연이 서비스 전체로 전파된다.
+   - 메모리 용량(파일 시스템 캐시)
+   - CPU
+   - 메모리 대역폭
+   - 네트워크
 
-본 연구는 다음을 수행한다.
+**본 연구가 하는 일.**
 1. Jetson Orin Nano 5대와 Lustre로 구성한 엣지 클러스터에서 LLM 라이프사이클(수집, 적응, 서빙)의 I/O 특성과 저장-연산 간섭을 분석한다.
-2. 분석 결과를 바탕으로 세 가지 기법을 설계한다.
-   - 파이프라인 분할과 데이터 배치를 Layer Group 단위로 함께 결정하는 기법
-   - 서빙 파이프라인에서 함께 실행되는 적응 학습의 체크포인트·복제 I/O를 제어하는 기법
-   - 이벤트 발생 시 LLM 플래너와 비용 모델 검증기로 재계획하는 기법
+2. 설비 단위로 이어 쓰는 컨텍스트의 KV를 데이터 수집 시점에 미리 계산하고, 내용 주소(content address)로 식별되는 불변 객체로 저장하는 **의미 기반 content-addressed KV 저장소**를 설계한다. 이 저장소는 세 가지를 분리한다.
 
-본 연구는 MASCOTS 2022에 발표한 IFLustre를 확장한다. IFLustre의 할당 정책은 OSS 사이의 간섭만 고려했는데, 이를 저장-연산 간섭과 LLM 라이프사이클까지 포함하도록 일반화한다.
+   | 구분 | 무엇이 결정하는가 |
+   |---|---|
+   | 객체의 이름 | 내용 (토큰 체인 해시, 모델·어댑터 버전, layer 묶음) |
+   | 객체의 위치 | 비용 모델 |
+   | 묶음·미리 읽기·압축 정책 | IoT 의미 정보 (설비, 시간, 이상 여부) |
+
+3. 파이프라인 분할과 데이터 배치를 Layer Group 단위로 함께 결정한다.
+4. 적응 학습의 체크포인트·복제·KV 재생성 I/O의 위치·시점·속도를 서빙 SLO에 맞추어 제어한다.
+5. 이벤트가 발생하면 LLM 플래너와 비용 모델 검증기로 재계획한다.
+
+본 연구는 MASCOTS 2022에 발표한 IFLustre를 확장한다.
 
 ### 0.2 영문 초록 초안
 
-> IoT applications increasingly rely on large language models (LLMs) to interpret sensor streams, acoustic signals, and logs close to where data is generated. Edge devices such as the NVIDIA Jetson Orin Nano offer only 8 GB of memory shared by the CPU and GPU, which cannot hold even a 4B-parameter model in FP16. Edge sites therefore form small clusters that run pipeline-parallel inference and exchange model weights, key-value (KV) caches, and adaptation checkpoints through a shared distributed file system (DFS), where every device acts as both an LLM compute node and a storage server. In such hyperconverged edge clusters, storage I/O competes with LLM computation for memory capacity, CPU cores, memory bandwidth, and a 1 GbE link, and pipeline parallelism amplifies the slowdown of a single device to the entire service. In this article, we first characterize the I/O of the edge LLM lifecycle (ingest, adapt, and serve) on a five-node Jetson Orin Nano cluster running Lustre. Based on our observations, we propose CoStripe, which (1) jointly decides the pipeline partition and the file layout of weights, KV caches, and adapters at layer-group granularity, (2) controls the placement, timing, and rate of checkpoint and replication I/O generated by adaptation co-located with serving, and (3) re-plans upon lifecycle events using an LLM-based planner with a cost-model verifier. Our evaluation shows that CoStripe improves p99 TTFT by X% and SLO attainment by Y% compared to the default Lustre configuration and our prior work.
+> IoT applications increasingly rely on large language models (LLMs) to interpret sensor streams, acoustic signals, and logs close to where data is generated. Edge devices such as the NVIDIA Jetson Orin Nano offer only 8 GB of memory shared by the CPU and GPU, which cannot hold even a 4B-parameter model in FP16. Edge sites therefore run pipeline-parallel inference on small clusters and exchange model weights, key-value (KV) caches, and adaptation state through a shared distributed file system (DFS), where every device acts as both an LLM compute node and a storage server. Two problems arise. First, IoT queries carry sliding windows of recent sensor and log records, which defeat prefix-based KV reuse and force repeated long prefills on weak devices. Second, storage I/O competes with LLM computation for memory capacity, CPU cores, memory bandwidth, and a 1 GbE link, and pipeline parallelism amplifies the slowdown of a single device to the entire service. We present CoStripe. CoStripe maintains append-only per-equipment contexts, builds their KV caches at ingestion time, and stores them as immutable, content-addressed objects whose names are derived from token-chain hashes and model versions, while IoT semantics (equipment, time, anomaly status) drive packing, placement, prefetching, and compaction. CoStripe further co-decides pipeline partitioning and layer-group-aligned file layouts, controls the placement, timing, and rate of checkpoint, replication, and KV-regeneration I/O generated by adaptation, and re-plans upon lifecycle events using an LLM-based planner with a cost-model verifier. On a five-node Jetson Orin Nano cluster running Lustre, CoStripe reduces p99 TTFT by X% and improves SLO attainment by Y% compared to the default Lustre configuration, query-time prefix caching, and our prior work.
 
-### 0.3 Orin Nano 8GB 반영으로 바뀐 사항
+### 0.3 설계 변경 요약
 
-| 항목 | 이전 설계 (AGX Orin 64GB 가정) | 현재 설계 (Orin Nano 8GB) | 이유 |
+| 항목 | 이전 설계 | 현재 설계 | 이유 |
 |---|---|---|---|
-| 서빙 모델 | Qwen3-32B FP16 (약 65.6GB) | Qwen3-4B FP16 (약 8.0GB) | 8GB 노드 1대에는 들어가지 않고, 4대에 나누면 노드당 약 1.8–2.6GB가 된다. |
-| LG 구성 | g=4, LG 16개 | g=3, LG 12개 (LG당 약 0.6GB) | 36 layer를 4 stage로 균등 분할 가능 |
-| 적응 학습 | N0 단독 QLoRA | N1–N4 서빙 파이프라인에서 LoRA를 함께 학습 (FP16 base 가중치 공유) | 8GB 노드 1대로는 4B 모델 학습 불가. Jetson ARM64에서 bitsandbytes 4-bit가 불안정하다는 보고가 있음 |
-| 체크포인트 생성 위치 | N0 | 각 stage 노드 (LG 단위 분할) | 학습이 파이프라인에서 실행되므로 |
-| N0 역할 | 학습 + 제어 | 제어 + 수집 + 플래너 + 전체 가중치 mirror + 장애 시 대체 stage | N0는 서빙 stage가 아니므로 연산 여유가 있음 |
-| 플래너 | Qwen3-8B Q4 | Qwen3-4B Q4_K_M (llama.cpp, 약 2.5GB) | N0 메모리 예산 |
-| 간섭 분석 중점 | 메모리 대역폭 | 메모리 용량(캐시), CPU, 메모리 대역폭, 1GbE | 8GB 메모리, 6코어 CPU, 1GbE |
-| 네트워크 | 10GbE 가정 | 1GbE (약 117MB/s) | 원격 읽기가 로컬 NVMe 읽기보다 10배 이상 느림 |
-| 컨텍스트 길이 | 기본 8k | 기본 4k–8k, 민감도 16k | 노드당 KV 메모리 약 1.5–2.3GB |
+| 대상 장비 | AGX Orin 64GB 가정 | Orin Nano 8GB × 5, 1GbE | 실제 장비 |
+| 서빙 모델 | Qwen3-32B FP16 | Qwen3-4B FP16 (약 8.0GB), 4-stage, LG 12개 | 8GB 노드 1대에 들어가지 않고 4대에 나누면 노드당 1.8–2.6GB |
+| KV 재사용 | 질의 시점 prefix 해시 재사용 | 설비 단위 이어 쓰기 컨텍스트 + 수집 시점 prefill + content-addressed 불변 객체 | 슬라이딩 윈도우에서 prefix 재사용이 깨짐 |
+| KV 저장 단위 | (prefix, LG) 파일에 chunk append | (컨텍스트, LG, epoch) 단위 pack 파일 + 내용 주소 검증 | 메타데이터 비용 감소, 위치 독립성 |
+| 적응 학습 | 전체 layer LoRA | 상위 LG(기본 LG9–11)에만 LoRA | 하위 LG의 KV가 어댑터 버전과 무관하게 유효 |
+| KV 재생성 | 고려 없음 | 상위 LG 입력 activation을 저장해 두고 상위 LG만 다시 계산 | 어댑터 전환 시 재계산 비용 약 75% 감소 |
+| N0 역할 | 학습 + 제어 | 제어, 수집, 수집 시점 prefill 스케줄, 압축, 플래너, 전체 가중치 mirror, 장애 대체 | N0는 서빙 stage가 아님 |
+| 간섭 분석 | 메모리 대역폭 | 메모리 용량, CPU, 메모리 대역폭, 1GbE | 8GB, 6코어, 1GbE |
 
 ---
 
 ## 1. Introduction
 
-**IoT 데이터와 엣지 처리.** IoT는 제조, 물류, 에너지, 농업 등에 널리 쓰이고 있으며, 생성되는 데이터의 양과 종류가 함께 늘고 있다. 산업 현장의 IoT 장치는 다음과 같은 데이터를 계속 생성한다.
-- 진동·온도 같은 시계열 센서 값
-- 설비 음향
-- 네트워크 트래픽과 시스템 로그
-- 카메라와 드론 영상
+**IoT 데이터와 엣지 처리.** IoT는 제조, 물류, 에너지, 농업 등에 널리 쓰인다. 산업 현장의 IoT 장치는 진동·온도 같은 시계열 센서 값, 설비 음향, 네트워크 트래픽, 시스템 로그, 영상을 계속 생성한다. 응답 지연 요구, 원격 전송 대역폭 비용, 설비·공정 데이터의 반출 제한 때문에, 이 데이터를 생성된 사이트 안에서 처리하는 엣지 컴퓨팅이 확산되고 있다.
 
-이전에는 이 데이터를 클라우드로 보내 처리했다. 그러나 응답 지연 시간 요구, 원격 전송 대역폭 비용, 설비·공정 데이터의 반출 제한 때문에 데이터가 생성된 사이트 안에서 처리하는 엣지 컴퓨팅이 확산되고 있다.
+**IoT에서의 LLM과 컨텍스트 구조.** 최근 IoT 데이터 해석에 LLM이 쓰이기 시작했다. LLM은 이상의 원인을 설명하고, 운영자의 자연어 질의에 답하고, 설비 매뉴얼과 로그를 연결해 조치 방법을 제시한다. 이런 질의의 입력에는 공통된 구조가 있다.
 
-**IoT에서의 LLM.** IoT 데이터를 해석하는 방식도 바뀌고 있다. 기존에는 이상 탐지 모델이 정상/이상 여부를 판정하는 것으로 끝났다. 최근에는 LLM이 다음과 같은 일을 하는 방식이 연구되고 있다.
-- 여러 형태의 데이터를 함께 해석한다.
-- 이상의 원인을 설명한다.
-- 현장 운영자의 자연어 질의에 답한다.
-- 설비 매뉴얼과 로그를 연결해 조치 방법을 제시한다.
+```
+[시스템 지시문] [라인별 설비 매뉴얼] [해당 설비의 최근 센서·로그 기록] [질문]
+```
 
-이런 활용에서는 LLM 입력에 시스템 지시문, 설비 매뉴얼, 최근 센서·로그 구간이 함께 들어가므로 입력이 길다. 또한 설비와 공정이 바뀌면 모델도 현장 데이터로 주기적으로 적응해야 한다.
+앞의 두 부분은 같은 라인의 질의 사이에서 반복된다. 세 번째 부분은 시간이 지나면서 계속 늘어나는 스트림이다.
 
-**엣지 장치 한 대의 한계.** 엣지에서 LLM을 운용하려면 장치 한 대의 자원 한계를 넘어야 한다. 소형 엣지 AI 장치인 Jetson Orin Nano는 CPU와 GPU가 공유하는 8GB 메모리, 6코어 CPU, 1GbE 네트워크를 갖는다.
+**IoT 질의에서 KV 재사용이 깨지는 이유.** LLM 서빙 시스템은 같은 prefix의 KV cache를 재사용해 prefill을 줄인다(vLLM, SGLang, LMCache). 그러나 IoT 질의가 최근 N분의 기록만 넣는 슬라이딩 윈도우를 쓰면, 가장 오래된 기록이 앞에서 빠지는 순간 그 뒤 토큰 전체의 prefix가 달라진다. 그래서 재사용되는 부분은 지시문과 매뉴얼뿐이고, 센서·로그 구간(수천 토큰)은 질의마다 다시 계산해야 한다. 연산 성능이 낮은 엣지 장치에서는 이 재계산이 TTFT 수 초에서 수십 초에 해당한다.
+
+**엣지 장치 한 대의 한계.** Jetson Orin Nano는 CPU와 GPU가 공유하는 8GB 메모리, 6코어 CPU, 1GbE 네트워크를 갖는다.
 - 4B급 모델(Qwen3-4B)의 FP16 가중치는 약 8GB여서 한 대에 올릴 수 없다.
-- 8-bit로 양자화하면 가중치는 약 4.3GB가 된다. 그러나 운영체제, CUDA 런타임, 파일 시스템이 쓰는 메모리를 제외하면 KV cache에 남는 메모리는 1GB 미만이다. 이는 8k 토큰 컨텍스트 하나도 담지 못하는 크기이다.
+- 8-bit로 양자화해 올리면 KV cache에 남는 메모리가 1GB 미만이다.
 
-이 문제를 해결하기 위해 여러 엣지 장치에 모델 layer를 나누어 배치하는 파이프라인 병렬 추론이 제안되었다(EdgeShard, PipeEdge, LOIP, prima.cpp 등).
+그래서 여러 장치에 모델 layer를 나누는 파이프라인 병렬 추론이 필요하다(EdgeShard, PipeEdge, LOIP, prima.cpp). 또 설비별 컨텍스트의 KV는 장치 메모리보다 크기 때문에 저장 계층에 두어야 한다. 8개 설비 컨텍스트가 각각 8k 토큰이면 stage당 약 2.25GiB로, 노드의 KV 공간(약 1.5–2.6GB)을 넘는다. 이 KV는 여러 운영자의 질의가 함께 쓰고, 분할 변경과 장애 후에도 남아 있어야 한다. 따라서 장치들 사이의 공유 저장 계층, 즉 분산 파일 시스템(DFS)이 필요하다.
 
-**라이프사이클과 데이터 공유.** 엣지의 LLM 운용은 세 단계가 반복되는 라이프사이클이다.
-1. 수집(Ingest): IoT 데이터를 저장한다.
-2. 적응(Adapt): 저장된 데이터로 모델을 주기적으로 적응시킨다.
-3. 서빙(Serve): 적응된 모델로 질의를 처리한다.
+**적응 학습과 KV 유효성.** 설비와 공정이 바뀌면 모델도 현장 데이터로 주기적으로 적응해야 한다. 8GB 장치 한 대로는 4B 모델을 학습할 수 없으므로, 서빙 파이프라인이 올린 base 가중치를 공유해 LoRA만 학습한다. 그런데 LoRA 어댑터가 바뀌면 그 어댑터가 적용된 layer와 그 이후 layer의 KV가 모두 달라진다. 따라서 적응 학습은 저장된 KV의 유효성 문제를 만든다.
 
-8GB 장치 한 대로는 4B 모델의 적응 학습도 할 수 없다. 그래서 적응 학습은 서빙 파이프라인이 메모리에 올린 base 가중치를 공유하며, 같은 파이프라인 위에서 LoRA 파라미터만 학습하는 방식으로 수행해야 한다.
-
-이 과정에서 생성되는 데이터 객체는 엣지 장치 기준으로 크다.
-
-| 객체 | 크기 |
-|---|---|
-| 모델 가중치 | 약 8GB |
-| 세션별 KV cache | 수백 MB–1GB 이상 |
-| 체크포인트 | 수십 MB–수 GB |
-
-이 객체들은 여러 장치 사이에서 공유되어야 한다. 장애나 부하 변화로 분할이 바뀌면, 어떤 layer의 가중치와 KV를 다른 장치가 읽어야 한다. 장치 장애에 대비해 체크포인트와 가중치는 다른 장치에도 복제해야 한다. 따라서 장치들 사이에 공유 저장 계층이 필요하고, 그 역할로 분산 파일 시스템(DFS)을 사용한다.
-
-**하이퍼컨버지드 구성의 문제.** 엣지 사이트에는 스토리지 전용 서버를 따로 둘 여유가 없다. 그래서 각 장치가 DFS의 스토리지 서버(Lustre의 OSS)이면서 LLM 연산 노드가 된다. 8GB 메모리와 1GbE 네트워크 환경에서는 저장 I/O가 같은 장치의 LLM 연산에 네 가지 경로로 영향을 줄 수 있다.
+**하이퍼컨버지드 구성의 간섭.** 엣지 사이트에는 스토리지 전용 서버를 둘 여유가 없으므로 각 장치가 DFS의 스토리지 서버이면서 LLM 연산 노드가 된다. 이때 저장 I/O는 같은 장치의 LLM 연산에 네 가지 경로로 영향을 준다.
 
 | 경로 | 내용 |
 |---|---|
-| 메모리 용량 | Lustre client 캐시의 기본 상한은 RAM의 1/2(약 3.7GB)이다. 파일 시스템 캐시가 모델과 KV cache에 쓸 메모리를 차지한다. |
-| CPU | 6개 코어를 OSS 처리, 네트워크 처리, LLM 런타임이 나눠 쓴다. |
-| 메모리 대역폭 | 메모리 대역폭이 성능을 결정하는 decode 단계에서, 저장 I/O의 데이터 복사가 대역폭을 나눠 쓴다. |
-| 네트워크 | 하나의 1GbE 링크를 stage 간 activation 전달, 원격 KV 읽기, 체크포인트 복제가 나눠 쓴다. |
+| 메모리 용량 | Lustre client 캐시의 기본 상한은 RAM의 1/2이다. 다른 노드의 I/O를 처리하는 서버 측 캐시도 이 노드의 메모리를 쓴다. |
+| CPU | OSS 처리, 네트워크 처리, LLM 런타임이 6개 코어를 나눠 쓴다. |
+| 메모리 대역폭 | 저장 I/O의 데이터 복사가 decode의 메모리 대역폭을 나눠 쓴다. |
+| 네트워크 | activation 전달, 원격 KV 읽기, 복제가 하나의 1GbE를 나눠 쓴다. |
 
-파이프라인 병렬 추론에서는 가장 느린 stage가 전체 처리량을 결정하므로, 한 장치의 지연이 서비스 전체로 전파된다. 즉, 이 환경에서는 데이터를 어느 장치에 저장할지를 정하는 것이 곧 어느 장치의 연산을 느리게 할지를 정하는 것이 된다.
+파이프라인에서는 가장 느린 stage가 처리량을 결정하므로, 데이터를 어느 장치에 둘지가 곧 어느 장치의 연산을 늦출지를 정한다.
 
-**기존 연구의 공백.** 기존 연구는 이 문제를 직접 다루지 않는다.
+**기존 연구의 공백.**
 
 | 연구 분야 | 다루지 않는 부분 |
 |---|---|
-| DFS 저장 할당 (본 연구진의 IFLustre 포함) | 스토리지 서버 사이의 간섭만 고려하고, 스토리지와 연산이 분리된 환경을 가정한다. |
-| 데이터센터 KV cache 저장 (Mooncake, LMCache, CachedAttention) | 연산 노드와 분리된 메모리·스토리지 풀을 가정한다. |
+| prefix 기반 KV 재사용 (vLLM, SGLang, LMCache, Mooncake) | 질의 시점에 KV를 만들고 재사용한다. 계속 늘어나는 IoT 스트림이나 슬라이딩 윈도우를 다루지 않는다. |
+| 사전 계산 KV (TurboRAG, MemLLM), 모듈 재사용 (Prompt Cache, CacheBlend, EPIC) | 고정된 문서나 프롬프트 모듈을 대상으로 한다. |
 | 엣지 KV 오프로딩 (KVSwap, Dual-Blade) | 장치 한 대의 로컬 SSD만 다룬다. |
-| 엣지 분산 추론 (EdgeShard, LOIP) | 연산량과 네트워크로 분할을 정하며, 저장 I/O와 학습 I/O를 고려하지 않는다. |
-| 추론·학습 공동 실행 (FlexLLM 등) | 데이터센터 GPU 서버를 대상으로 하며, 체크포인트 저장 I/O와 저장-연산 간섭을 다루지 않는다. |
-| LLM 기반 스토리지 튜닝 (ION, STELLAR) | HPC 단일 애플리케이션의 오프라인 튜닝을 다룬다. |
+| 엣지 분산 추론 (EdgeShard, LOIP) | 저장 I/O와 학습 I/O를 고려하지 않는다. |
+| DFS 저장 할당 (본 연구진의 IFLustre 포함) | 스토리지 서버 사이의 간섭만 다룬다. |
+| content-addressed 저장 (Venti, LBFS, IPFS) | 일반 데이터를 대상으로 하며, LLM 상태의 버전 의존성(어댑터에 따른 KV 변화)을 다루지 않는다. |
 
-**본 연구의 접근.** 본 연구는 네 단계로 접근한다.
-1. Jetson Orin Nano 5대와 Lustre로 구성한 엣지 클러스터에서 LLM 라이프사이클의 I/O 특성과 저장-연산 간섭을 측정한다.
-2. 가중치, KV cache, 어댑터, 체크포인트가 모두 layer 단위로 나뉜다는 점에 주목한다. 연속된 layer 묶음(Layer Group, LG)을 파이프라인 분할과 데이터 배치의 공통 단위로 정하고, 둘을 하나의 비용 모델 위에서 함께 결정한다.
-3. 서빙 파이프라인에서 함께 실행되는 적응 학습의 체크포인트와 복제 I/O가 어디로, 언제, 어떤 속도로 나갈지를 서빙 SLO에 맞추어 제어한다.
-4. 적응 라운드, 장애, 부하 변화, 운영 정책 변경 같은 이벤트가 발생하면, LLM 플래너가 변경안을 만들고 비용 모델 기반 검증기가 이를 검사한 뒤 적용한다.
+**본 연구의 접근 (CoStripe).**
+1. **실측 분석.** Jetson Orin Nano 5대와 Lustre로 구성한 클러스터에서 LLM 라이프사이클 I/O와 저장-연산 간섭을 측정한다.
+2. **의미 기반 content-addressed KV 저장소.** 설비 단위로 컨텍스트를 이어 쓰고, 수집 시점에 KV를 미리 계산한다. 이 KV를 내용 주소로 식별되는 불변 객체로 저장한다. 설비·시간·이상 여부 같은 의미 정보로 객체를 묶고, 배치하고, 미리 읽고, 압축한다.
+3. **분할과 배치의 공동 결정.** 가중치, KV, 어댑터가 모두 layer 단위로 나뉜다는 점을 이용해, Layer Group(LG)을 파이프라인 분할과 데이터 배치의 공통 단위로 정하고 하나의 비용 모델로 함께 결정한다.
+4. **적응 학습 I/O 제어.** LoRA를 상위 LG에만 적용해 하위 LG의 KV가 어댑터 버전과 무관하게 유효하도록 한다. 상위 LG 입력 activation을 저장해, 어댑터가 바뀌면 상위 LG만 다시 계산한다. 체크포인트·복제·KV 재생성 I/O의 위치·시점·속도는 서빙 SLO에 맞춘다.
+5. **이벤트 기반 재계획.** LLM 플래너가 변경안을 만들고, 비용 모델 검증기가 검사한 뒤 적용한다.
 
-본 연구는 이 기법을 구현한 시스템을 CoStripe라 부른다. CoStripe는 IFLustre의 할당 정책(interference-free, throughput-aware, runtime-aware, read-aware relocation)을 일반화한 것이다. IFLustre는 본 연구의 비용 모델에서 연산 항을 제외한 특수한 경우에 해당한다.
+CoStripe는 IFLustre의 할당 정책(interference-free, throughput-aware, runtime-aware, read-aware relocation)을 일반화한 것이며, IFLustre는 본 연구의 비용 모델에서 연산 항을 제외한 특수한 경우에 해당한다.
 
-**기여.** 본 연구의 기여는 다음과 같다.
-1. 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 DFS에서 LLM 라이프사이클 I/O의 특성과 저장-연산 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크)을 실측으로 분석하고, 관찰 결과 6개를 제시한다.
-2. Layer Group 단위로 파이프라인 분할과 데이터 배치를 함께 결정하는 비용 모델과 배치 기법을 제안한다. 여기에는 예상되는 분할 변경(장애 대체, 재분할)을 고려한 복제 위치 결정이 포함된다.
-3. IFLustre의 할당 정책을 라이프사이클 전체로 확장한 시스템 CoStripe와, 이벤트 기반 LLM 플래너 및 검증기를 설계하고 구현한다.
-4. Jetson Orin Nano 5대로 구성한 실제 장비에서 기존 기법 대비 성능을 평가한다.
+**기여.**
+1. 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 DFS에서 LLM 라이프사이클 I/O의 특성, 저장-연산 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크), IoT 질의의 KV 재사용 특성을 실측으로 분석하고, 관찰 결과 7개를 제시한다.
+2. 이름(내용), 위치(비용 모델), 정책(IoT 의미)을 분리한 의미 기반 content-addressed KV 저장소를 제안한다. 여기에는 수집 시점 prefill, 의미 기반 묶음과 압축, 어댑터 범위를 반영한 주소, 경계 activation을 이용한 부분 재생성이 포함된다.
+3. Layer Group 단위로 파이프라인 분할과 데이터 배치를 함께 결정하는 비용 모델과 배치 기법을 제안한다. 여기에는 장애 대체 분할을 고려한 복제 위치 결정이 포함된다.
+4. IFLustre의 할당 정책을 라이프사이클 전체로 확장한 시스템 CoStripe와 이벤트 기반 LLM 플래너·검증기를 구현하고, Jetson Orin Nano 5대에서 평가한다.
 
 ---
 
@@ -181,7 +174,7 @@ IoT 애플리케이션은 센서, 음향, 로그 데이터를 해석하기 위�
 
 ### 2.1 IoT 데이터 처리와 엣지 컴퓨팅
 
-**IoT 데이터의 형태.** IoT 데이터는 도메인에 따라 형태와 크기가 크게 다르다. 원 IFLustre 연구는 아래 6종의 공개 데이터셋으로 IoT I/O를 모사했다. 파일 크기가 수백 KB에서 수 GB까지 분포하며, 이 차이가 DFS의 striping 효과를 다르게 만든다는 것을 보였다.
+**IoT 데이터의 형태.** IoT 데이터는 도메인에 따라 형태와 크기가 크게 다르다. 원 IFLustre 연구는 아래 6종의 공개 데이터셋으로 IoT I/O를 모사했다.
 
 | 데이터셋 | 도메인 | 데이터 형태 | 파일 크기 | 원 논문 이름 |
 |---|---|---|---|---|
@@ -193,12 +186,21 @@ IoT 애플리케이션은 센서, 음향, 로그 데이터를 해석하기 위�
 | LoED | 센서 네트워크 | LoRaWAN 패킷 | 10~30MB | IoTApp6 |
 
 여기에 두 종류를 추가로 고려한다.
-- **RIoTBench:** 분산 스트림 처리용 IoT 벤치마크이다. 수백 바이트 단위의 센서 레코드가 연속으로 들어오는 패턴을 대표한다.
-- **Loghub:** 시스템 로그 모음(HDFS, BGL, Thunderbird 등)으로, LLM이 직접 해석하는 텍스트 형태의 데이터를 대표한다.
+- **RIoTBench:** 분산 스트림 처리용 IoT 벤치마크로, 수백 바이트 단위 센서 레코드가 연속으로 들어오는 패턴을 대표한다.
+- **Loghub:** 시스템 로그 모음(HDFS, BGL, Thunderbird 등)으로, LLM이 직접 해석하는 텍스트 데이터를 대표한다.
 
-**소파일 IoT 데이터와 striping.** RIoTBench처럼 레코드가 작은 데이터는 파일 단위 striping의 효과가 거의 없다. 원 IFLustre 연구에서도 256KB 파일은 stripe count를 늘려도 처리량이 오르지 않았다(최대 4% 감소). 따라서 본 연구에서 IoT 수집 데이터는 성능 최적화의 주 대상이 아니다. 대신 LLM 라이프사이클의 입력이자 배경 I/O 부하로 다룬다.
+**IoT 데이터의 의미 구조.** IoT 레코드에는 공통된 의미 속성이 있다.
 
-**엣지 컴퓨팅.** 클라우드는 자원이 크지만, 엣지 사이트에서 원격 데이터센터까지의 네트워크 지연과 대역폭 비용이 든다. 공정 데이터와 영상은 보안 정책상 외부 반출이 제한되는 경우가 많다. 엣지 컴퓨팅은 데이터 생성 위치 근처에서 처리해 이 문제를 줄인다. 그 대신 장치별 연산, 메모리, 저장 자원이 작고 전력과 발열 제약이 있다.
+| 속성 | 예시 | 본 연구에서의 용도 |
+|---|---|---|
+| 출처 | 라인, 설비, 센서 | 컨텍스트 단위, 묶음 단위, 배치 친화성, 정책 우선순위 |
+| 시간 | 타임스탬프, 측정 주기 | 컨텍스트 순서, 보존 기간, 압축 대상 |
+| 상태 | 정상, 경고, 이상 | 압축 규칙(이상 기록은 원문 유지) |
+| 접근 패턴 | 교대 시각, 점검 일정 | 미리 읽기, 메모리 상주 |
+
+**소파일 IoT 데이터와 striping.** 레코드가 작은 데이터는 파일 단위 striping의 효과가 거의 없다. 원 IFLustre 연구에서도 256KB 파일은 stripe count를 늘려도 처리량이 오르지 않았다. 그래서 본 연구에서 IoT 원본 데이터는 성능 최적화의 주 대상이 아니다. 대신 컨텍스트와 KV를 만드는 입력이자 배경 I/O 부하로 다룬다.
+
+**엣지 컴퓨팅.**
 
 | 항목 | 클라우드 | 엣지 사이트 (본 연구) |
 |---|---|---|
@@ -211,13 +213,11 @@ IoT 애플리케이션은 센서, 음향, 로그 데이터를 해석하기 위�
 
 ### 2.2 엣지 하드웨어: Jetson Orin Nano
 
-Jetson Orin은 ARM CPU와 Ampere GPU를 하나의 SoC에 통합한 엣지 AI 모듈이다. 가장 중요한 구조적 특징은 **CPU와 GPU가 하나의 LPDDR5 메모리를 공유하는 unified memory**이다. 다음 항목이 모두 같은 물리 메모리와 같은 메모리 컨트롤러(EMC)를 사용한다.
-- GPU 텐서(모델 가중치, KV cache, activation)
+Jetson Orin은 ARM CPU와 Ampere GPU를 하나의 SoC에 통합한 엣지 AI 모듈이다. CPU와 GPU가 하나의 LPDDR5 메모리를 공유한다(unified memory). 다음이 모두 같은 물리 메모리와 같은 메모리 컨트롤러(EMC)를 사용한다.
+- GPU 텐서
 - CPU 프로세스 메모리
 - 운영체제 page cache
-- 파일 시스템 버퍼와 Lustre 캐시
-
-**Orin 계열 모듈 비교** (본 연구 대상: Orin Nano 8GB)
+- Lustre 캐시
 
 | 모듈 | CPU | GPU | 메모리 | 메모리 대역폭 | AI 성능 (INT8, sparse) | 전력 | 개발자 키트 NIC |
 |---|---|---|---|---|---|---|---|
@@ -225,72 +225,86 @@ Jetson Orin은 ARM CPU와 Ampere GPU를 하나의 SoC에 통합한 엣지 AI 모
 | Orin NX 16GB | 8-core Cortex-A78AE | 1024-core Ampere, Tensor Core 32개 | 16GB LPDDR5 | 102.4GB/s | 100 TOPS (Super 157) | 10–25W (Super 40W) | 1GbE |
 | AGX Orin 64GB | 12-core Cortex-A78AE | 2048-core Ampere, Tensor Core 64개 | 64GB LPDDR5 | 204.8GB/s | 275 TOPS | 15–60W | 최대 10GbE |
 
-"Super"는 JetPack 6.x의 상위 전력 모드를 적용한 Orin Nano Super Developer Kit 기준이다. 수치는 NVIDIA 공개 자료 기준이며, 사용하는 장비의 공식 datasheet와 실측으로 다시 확인한다(8장 미결 사항).
+수치는 NVIDIA 공개 자료 기준이며, 공식 datasheet와 실측으로 다시 확인한다(8장).
 
 **Orin Nano 개발자 키트 구성**
 
 | 항목 | 내용 | 본 연구에서의 의미 |
 |---|---|---|
-| 저장 장치 | microSD 슬롯, M.2 Key M 슬롯(NVMe). NVMe SSD는 기본 포함되지 않음 | OST는 NVMe에 둔다. NVMe 장착 여부와 모델을 확인해야 한다. |
+| 저장 장치 | microSD 슬롯, M.2 Key M 슬롯(NVMe). NVMe는 기본 포함되지 않음 | OST는 NVMe에 둔다. 장착 여부를 확인해야 한다. |
 | 네트워크 | 1GbE RJ45 1개 | 원격 접근 상한 약 117MB/s |
-| USB | USB 3.2 포트 | 선택: USB 2.5GbE/5GbE 어댑터로 네트워크 민감도 실험 |
-| 전력 모드 | 7W, 15W, 최대 25W (`nvpmodel`) | CPU, GPU, EMC 클럭이 함께 바뀌므로 연산과 I/O 처리 성능이 같이 변한다. |
-| 메모리 | 8GB 중 운영체제에서 사용 가능한 양은 약 7.4GiB | 모든 구성 요소가 이 안에서 나눠 써야 한다. |
-| 스왑 | JetPack 기본 구성에 zram 스왑이 포함될 수 있음 | 측정 전에 활성화 여부를 기록하고 고정한다. |
+| 전력 모드 | 7W, 15W, 최대 25W (`nvpmodel`) | CPU, GPU, EMC 클럭이 함께 바뀐다. |
+| 메모리 | 8GB 중 OS에서 사용 가능한 양은 약 7.4GiB | 모든 구성 요소가 이 안에서 나눠 쓴다. |
+| 스왑 | JetPack 기본 구성에 zram 스왑이 포함될 수 있음 | 측정 전에 기록하고 고정한다. |
 
 **본 연구에 대한 시사점**
+1. **메모리 용량 경쟁이 가장 직접적이다.** 7.4GiB 안에 다음이 모두 들어가야 한다.
+   - 운영체제, CUDA/PyTorch 런타임
+   - Lustre 서버와 client, 캐시
+   - 가중치, KV cache, 학습 상태
 
-1. **메모리 용량 경쟁이 가장 직접적이다.** 7.4GiB 안에 운영체제, CUDA/PyTorch 런타임, Lustre 서버와 client, 파일 시스템 캐시, 모델 가중치, KV cache, 적응 학습 상태가 모두 들어가야 한다.
-   - Lustre client 캐시(`llite.*.max_cached_mb`)의 기본 상한은 RAM의 1/2이다. 설정하지 않으면 캐시가 KV cache 공간 전체를 차지할 수 있다.
-   - 가중치를 파일에서 읽어 GPU 버퍼로 올리면, 같은 데이터가 page cache와 GPU 버퍼에 이중으로 존재할 수 있다.
-2. **CPU 여유가 작다.** 6개의 Cortex-A78AE 코어를 Lustre OSS 스레드, LNet/TCP 처리, 체크섬 계산, LLM 런타임의 CPU 측 작업이 나눠 쓴다.
-3. **메모리 대역폭이 작다.** 68–102GB/s의 대역폭은 decode 성능의 상한이다. 로컬 NVMe I/O(GB/s 단위)의 DMA와 데이터 복사가 이 대역폭의 일부를 사용한다.
-4. **원격 접근이 로컬보다 훨씬 느리다.** 1GbE(약 117MB/s)는 NVMe 순차 읽기(GB/s 단위)보다 10배 이상 느리다. 데이터센터와 달리 데이터 위치가 성능을 크게 바꾼다.
+   Lustre client 캐시(`llite.*.max_cached_mb`)의 기본 상한은 RAM의 1/2이다.
+2. **CPU 여유가 작다.** 6개 코어를 OSS 스레드, LNet/TCP, 체크섬, LLM 런타임이 나눠 쓴다.
+3. **메모리 대역폭이 decode의 상한이다.** 68–102GB/s 대역폭을 로컬 NVMe I/O의 DMA와 복사가 일부 사용한다.
+4. **원격 접근이 로컬보다 10배 이상 느리다.** 1GbE(약 117MB/s)는 NVMe 순차 읽기(GB/s 단위)보다 훨씬 느리다.
+5. **prefill이 느리다.** 연산 성능이 낮아 긴 컨텍스트 prefill이 수 초에서 수십 초 걸린다. 그래서 KV 재사용의 가치가 데이터센터보다 크다.
 
 ### 2.3 IoT 애플리케이션에서의 LLM 활용
-
-LLM을 IoT에 적용하는 연구는 크게 다섯 가지 형태로 나뉜다.
 
 | 활용 | 입력 | 출력 | 요구 특성 |
 |---|---|---|---|
 | 이상 원인 설명 | 센서·음향 특징 요약, 이상 탐지 결과, 설비 정보 | 원인 후보와 근거 | 긴 컨텍스트, 도메인 지식 |
-| 운영자 질의 응답 | 매뉴얼, 최근 로그·센서 구간, 질문 | 답변, 조치 절차 | 긴 공통 prefix 반복, 낮은 응답 지연 |
+| 운영자 질의 응답 | 매뉴얼, 최근 로그·센서 기록, 질문 | 답변, 조치 절차 | 긴 공통 prefix, 계속 늘어나는 기록, 낮은 응답 지연 |
 | 로그 분석 | 시스템·설비 로그 | 이상 로그 판정, 요약 | 긴 입력, 로그 형식 적응 |
 | 멀티모달 판독 | 이미지, 음향 | 판독 결과 | VLM, 큰 입력 |
-| 에이전트 제어 | 상태 요약, 정책 | 제어 명령 | 도구 호출, 정확한 출력 형식 |
+| 에이전트 제어 | 상태 요약, 정책 | 제어 명령 | 정확한 출력 형식 |
 
-이 활용들의 공통점은 다음과 같다.
-- 입력에 반복되는 긴 공통 부분(시스템 지시문, 매뉴얼)과 시간적으로 겹치는 데이터 구간(최근 센서·로그)이 포함된다. 그래서 KV cache를 재사용할 여지가 크다.
-- 설비와 공정이 바뀌면 응답 품질이 떨어지므로 현장 데이터로 주기적으로 적응해야 한다.
-- 데이터 반출 제한과 지연 요구 때문에 엣지 실행이 선호되지만, 장치 한 대의 자원 한계 때문에 여러 장치의 협력이 필요하다.
+공통점은 세 가지이다.
+- **반복과 누적.** 입력에 반복되는 긴 공통 부분(지시문, 매뉴얼)과, 설비별로 시간에 따라 누적되는 기록이 함께 들어간다.
+- **현장 적응.** 설비와 공정이 바뀌면 현장 데이터로 주기적으로 적응해야 한다.
+- **엣지 실행.** 데이터 반출 제한과 지연 요구 때문에 엣지 실행이 선호된다.
 
-관련 조사 연구로 "When IoT Meet LLMs"(2024), LLM 기반 엣지 인텔리전스 조사(Friha et al., 2024)가 있다. LLM 기반 로그 분석은 Loghub 데이터셋을 기준으로 활발히 연구되고 있다.
+관련 조사 연구로 "When IoT Meet LLMs"(2024), LLM 기반 엣지 인텔리전스 조사(Friha et al., 2024)가 있다. LLM 기반 로그 분석은 Loghub를 기준으로 연구되고 있다.
 
 ### 2.4 LLM 추론과 학습의 구조, 그리고 저장 I/O
 
 #### 2.4.1 Transformer 구조와 추론 단계
 
-Decoder-only LLM은 임베딩 layer, L개의 transformer layer, 출력 head로 구성된다. 각 transformer layer는 attention 블록과 MLP 블록으로 이루어지며, 파라미터는 대부분 transformer layer에 있다. 일부 모델(Qwen3-4B 등)은 입력 임베딩과 출력 head가 같은 행렬을 공유한다(tied embedding). 추론은 두 단계로 나뉜다.
+Decoder-only LLM은 임베딩, L개의 transformer layer, 출력 head로 구성된다. Qwen3-4B는 입력 임베딩과 출력 head가 같은 행렬을 공유한다(tied embedding).
 
 | 단계 | 내용 | 성능 결정 요인 |
 |---|---|---|
-| Prefill | 입력 프롬프트 전체를 한 번에 처리해 KV cache를 만든다. | 연산량 (약 2 × 파라미터 수 × 입력 토큰 수 FLOP + attention 항) |
+| Prefill | 입력 전체를 한 번에 처리해 KV cache를 만든다. | 연산량 (약 2 × 파라미터 × 토큰 + attention 항) |
 | Decode | 토큰을 하나씩 생성한다. 매 토큰마다 가중치 전체와 누적 KV를 읽는다. | 메모리 대역폭 |
 
-- TTFT(첫 토큰까지의 시간)는 prefill 시간이 결정한다.
-- TPOT(토큰당 생성 시간)는 decode 속도가 결정한다.
+#### 2.4.2 KV cache와 재사용 방식
 
-#### 2.4.2 KV cache
-
-Attention은 이전 토큰들의 Key와 Value를 다시 사용하므로, 이를 저장해 두는 것이 KV cache이다. 토큰당 KV 크기는 다음과 같다.
+토큰당 KV 크기는 다음과 같다.
 
 ```
-KV bytes/token = 2 (K, V) × L (layer 수) × H_kv (KV head 수) × d_head (head 차원) × b (원소 바이트)
+KV bytes/token = 2 × L × H_kv × d_head × b
 ```
 
-GQA(Grouped Query Attention)를 쓰는 최신 모델은 H_kv가 작아 KV 크기가 줄었다. 그래도 긴 컨텍스트에서는 세션 하나의 KV가 GB 단위가 된다. KV를 재사용하면 같은 prefix의 prefill을 다시 계산하지 않아도 되므로 TTFT가 크게 줄어든다.
-- vLLM의 PagedAttention과 automatic prefix caching, SGLang의 RadixAttention은 GPU 메모리 안에서 KV를 재사용한다.
-- CachedAttention, Mooncake, LMCache는 KV를 CPU 메모리와 SSD 같은 하위 계층으로 확장한다.
+**KV 의존성.** layer l의 KV는 두 가지에 의존한다.
+1. 그 토큰을 포함한 앞의 모든 토큰 (attention 때문)
+2. layer 0부터 l까지의 모든 가중치 (residual stream 때문)
+
+따라서 KV는 다음 조건에서만 그대로 재사용할 수 있다.
+- 같은 모델·가중치 버전
+- 같은 앞부분 토큰 열
+
+**재사용 방식의 분류**
+
+| 방식 | 대표 연구 | 재사용 조건 | 한계 |
+|---|---|---|---|
+| prefix 재사용 (GPU 메모리) | vLLM (PagedAttention, block hash), SGLang (RadixAttention) | 앞부분 토큰 열이 같아야 함 | 메모리 용량, 질의 시점에만 생성 |
+| prefix 재사용 (계층형 저장) | CachedAttention, Mooncake, LMCache, IMPRESS | 위와 같음 | 질의 시점 생성, 데이터센터 저장 풀 |
+| 위치 독립 재사용 | Prompt Cache, CacheBlend, EPIC | 모듈이나 문서 단위로 재사용하고 일부 토큰을 다시 계산 | 근사(품질 영향), 정적 모듈 |
+| 사전 계산 KV | TurboRAG, MemLLM | 고정 문서의 KV를 미리 계산 | 고정 문서 대상 |
+
+vLLM의 prefix caching은 블록 해시(`hash(부모 블록 해시, 블록 토큰)`)로 KV 블록을 식별한다. 이는 메모리 안에서 이미 content addressing을 쓰고 있다는 뜻이다. 본 연구는 이 개념을 저장 계층과 스트림으로 확장한다.
+
+**슬라이딩 윈도우 문제.** 질의가 `[지시문][매뉴얼][최근 N분 기록][질문]`이면, 시간이 지나 가장 오래된 기록이 빠질 때 그 뒤 기록 전체의 위치와 앞부분이 바뀐다. prefix 재사용은 매뉴얼까지만 적용되고, 기록 구간은 매번 다시 계산된다.
 
 **후보 모델의 구조와 크기** (계산식은 부록 A)
 
@@ -307,351 +321,300 @@ GQA(Grouped Query Attention)를 쓰는 최신 모델은 H_kv가 작아 KV 크기
 | 모델·정밀도 | 1대 적재 | KV 여유 | 판단 |
 |---|---|---|---|
 | Qwen3-4B FP16 | 불가 | – | 분할 필요 |
-| Qwen3-4B Q8_0 | 가능 | 1GB 미만 (8k 세션 1개 미만) | 긴 컨텍스트 서빙 불가 |
-| Qwen3-4B Q4_K_M | 가능 | 약 2–3GB (8k 세션 2개 내외) | 4-bit 양자화로 품질 저하. 비교 대상(B7)으로 사용 |
+| Qwen3-4B Q8_0 | 가능 | 1GB 미만 | 긴 컨텍스트 서빙 불가 |
+| Qwen3-4B Q4_K_M | 가능 | 약 2–3GB | 4-bit 품질 저하. 비교 대상(B7)으로 사용 |
 | Qwen3-8B 이상 | Q4 외 불가 | – | 분할 필요, PyTorch FP16 분할도 메모리 부족 |
 
 #### 2.4.3 병렬화 방식과 엣지
 
-여러 장치로 모델을 나누는 방법은 두 가지이다.
-
 | 방식 | 분할 방법 | 통신 | 엣지 적합성 |
 |---|---|---|---|
-| Tensor Parallelism | layer 내부 행렬을 장치들이 나눔 | layer마다 all-reduce | 1GbE에서는 통신 시간이 연산 시간을 크게 넘어 부적합 |
-| Pipeline Parallelism | 연속된 layer 구간을 장치에 배정 (stage) | stage 경계에서 activation만 전달 (토큰당 hidden × 2B, Qwen3-4B 기준 5KiB) | 엣지 분산 추론의 표준 방식 |
+| Tensor Parallelism | layer 내부 행렬을 나눔 | layer마다 all-reduce | 1GbE에서 부적합 |
+| Pipeline Parallelism | 연속된 layer 구간을 장치에 배정 (stage) | stage 경계에서 activation만 전달 (Qwen3-4B 토큰당 5KiB) | 엣지 분산 추론의 표준 |
 
-- 파이프라인 병렬에서 처리량은 가장 느린 stage가 결정한다. 그래서 각 stage의 연산량을 균형 있게 맞추는 분할이 중요하다.
-- 1GbE에서는 prefill activation 전달도 무시할 수 없다. 8k 토큰 prefill은 stage 경계마다 약 40MiB(1GbE로 약 0.35초)를 전달한다. 이 전달은 같은 NIC를 쓰는 원격 저장 I/O와 경쟁한다.
+- 처리량은 가장 느린 stage가 결정한다.
+- 8k 토큰 prefill은 stage 경계마다 약 40MiB(1GbE로 약 0.35초)를 전달하며, 같은 NIC의 원격 저장 I/O와 경쟁한다.
+- stage 경계의 activation(hidden state)은 토큰당 5KiB로 KV(144KiB)보다 훨씬 작다. 이를 저장해 두면 경계 이후 layer만 다시 계산할 수 있다(3.8.2절).
 
 #### 2.4.4 적응 학습과 어댑터
 
-**LoRA와 QLoRA.** LoRA는 원래 가중치를 고정하고, 각 layer의 일부 projection에 저랭크 행렬(A, B)을 추가해 학습한다. QLoRA는 기본 가중치를 4-bit로 양자화한 상태에서 LoRA를 학습한다.
+**LoRA와 QLoRA.** LoRA는 원래 가중치를 고정하고 일부 projection에 저랭크 행렬을 더해 학습한다. QLoRA는 4-bit base 위에서 LoRA를 학습한다.
 
-**Jetson에서의 제약.** Jetson ARM64 환경에서는 bitsandbytes 4-bit 양자화가 동작하지 않거나 불안정하다는 사례가 보고되었다. Orin Nano 8GB에서 안정적으로 학습이 보고된 범위는 1B급 모델의 FP16 LoRA 정도이다. 따라서 Orin Nano 1대로 4B 모델을 학습하는 것은 현실적이지 않다.
+**Jetson 제약.** Jetson ARM64에서는 bitsandbytes 4-bit가 불안정하다는 보고가 있다. Orin Nano 8GB에서 안정적으로 보고된 범위는 1B급 FP16 LoRA 정도이다.
 
-**본 연구의 학습 방식: 파이프라인 공동 적응.** 서빙 파이프라인이 각 노드에 올린 FP16 base 가중치를 그대로 공유하고, 같은 파이프라인 위에서 LoRA 파라미터만 학습한다.
-- forward: activation을 다음 stage로 보낸다.
-- backward: 입력 activation에 대한 gradient를 이전 stage로 보낸다.
-- 각 stage는 자기 layer의 LoRA 파라미터와 optimizer 상태만 가진다. 그래서 체크포인트와 어댑터는 LG 단위로 각 stage 노드에서 생성된다.
+**본 연구의 학습 방식: 파이프라인 공동 적응.** 서빙 파이프라인이 올린 FP16 base 가중치를 공유하고, 같은 파이프라인에서 LoRA만 학습한다. 데이터센터에서는 FlexLLM, ConServe, DeltaServe가 같은 GPU에서 추론과 미세조정을 함께 실행한다.
 
-데이터센터에서는 FlexLLM, ConServe, DeltaServe가 같은 GPU에서 추론과 PEFT 미세조정을 함께 실행하는 방식을 제안했다.
+**LoRA 적용 범위와 KV.** LoRA를 layer a 이상에만 적용하면 다음이 성립한다.
+- layer a보다 아래의 KV는 어댑터와 무관하다.
+- 어댑터가 바뀌어도 하위 layer KV는 그대로 유효하다.
+- 하위 layer는 학습 backward가 지나가지 않으므로 학습 비용도 줄어든다.
+- 대신 적응 능력이 일부 줄어든다. 이는 4.5절에서 품질로 확인한다.
 
-**어댑터와 체크포인트의 구성**
-- 학습 결과물인 어댑터는 원래 모델보다 훨씬 작다(Qwen3-4B, rank 16, q/k/v/o 기준 약 24MB).
-- 체크포인트는 어댑터 파라미터, optimizer 상태(Adam의 1차·2차 모멘트), 학습 진행 정보로 구성되며, 학습 중 주기적으로 저장된다.
-- 장치 장애에 대비하려면 체크포인트를 다른 장치에도 복제해야 한다.
+**어댑터와 체크포인트 크기.** 어댑터는 원래 모델보다 훨씬 작다(Qwen3-4B, rank 16, q/k/v/o, 상위 9 layer 기준 약 6MB). 체크포인트는 어댑터 파라미터와 optimizer 상태로 구성되며, 장애에 대비해 다른 장치에 복제해야 한다.
 
-**다중 어댑터 서빙.** 여러 어댑터를 동시에 서빙하는 시스템으로 S-LoRA, Punica가 있고, 엣지용으로 EdgeLoRA가 있다.
+**다중 어댑터 서빙.** S-LoRA, Punica(데이터센터), EdgeLoRA(엣지)가 있다.
 
 #### 2.4.5 LLM 라이프사이클의 저장 I/O 유형
 
 | I/O 유형 | 발생 시점 | 크기 (Qwen3-4B 기준) | 패턴 | 성능 영향 |
 |---|---|---|---|---|
-| 가중치 로드 | 시작, 재분할, 장애 복구 | stage당 1.8–2.6GB | 순차 읽기 | 서비스 시작·복구 시간 |
-| KV 저장 | 요청 처리 후 | 8k 세션당 stage별 288MiB | 순차 쓰기(append) | 저장 위치 노드의 부하 |
-| KV 로드 | 같은 prefix의 요청 도착 시 | 위와 같음 | 순차 읽기 | TTFT |
-| 체크포인트 | 적응 학습 중 주기적 | stage당 수십–수백 MB | 버스트 쓰기 + 원격 복제 | 학습 정지 시간, 동시 서빙 지연 |
-| 어댑터 확정·복제 | 적응 라운드 종료 | stage당 수 MB–수십 MB | 쓰기, 원격 복제 | 적응 결과 반영 지연 |
-| IoT 수집 | 계속 | 레코드 수백 B–파일 수 GB | 소파일 쓰기, 대용량 순차 쓰기 | 배경 부하 |
-| 학습 데이터 전달 | 적응 학습 중 | 라운드당 수십 MB | 순차 읽기 | 학습 속도 |
+| 가중치 로드 | 시작, 재분할, 장애 복구 | stage당 1.8–2.6GB | 순차 읽기 | 시작·복구 시간 |
+| 수집 시점 KV 생성 | 레코드 수집 후 배치 단위 | 256토큰 chunk당 stage별 9MiB | 컨텍스트 KV 읽기 + 새 chunk 쓰기 | 저장 위치 노드의 부하, 데이터 최신성 |
+| 질의 시점 KV 로드 | 질의 도착 | 8k 컨텍스트당 stage별 288MiB | 순차 읽기 | TTFT |
+| 경계 activation 저장 | 수집 시점 prefill 중 | 토큰당 5KiB | 순차 쓰기 | 작음 |
+| 어댑터 전환 후 KV 재생성 | 적응 라운드 종료 후 | 상위 LG KV, 컨텍스트당 stage별 288MiB | 경계 activation 읽기 + KV 쓰기 | 버스트 |
+| 체크포인트 | 적응 학습 중 주기적 | 상위 LG stage에서 수십–수백 MB | 버스트 쓰기 + 원격 복제 | 동시 서빙 지연 |
+| 컨텍스트 압축 | 컨텍스트 한계 도달 | 컨텍스트 KV 재생성 | 쓰기 버스트 | 연산·I/O 버스트 |
+| IoT 수집 | 계속 | 레코드 수백 B–파일 수 GB | 소파일 쓰기 | 배경 부하 |
 
-### 2.5 분산 파일 시스템과 Lustre
+### 2.5 Content-addressed 저장
 
-#### 2.5.1 DFS 개요
+Content-addressed 저장(CAS)은 객체의 이름을 저장 위치가 아니라 내용의 해시로 정한다.
 
-DFS는 여러 서버의 저장 장치를 하나의 이름 공간으로 묶어 제공한다.
+| 시스템 | 발표 | 내용 |
+|---|---|---|
+| LBFS | SOSP 2001 | 파일 chunk의 해시로 중복 전송을 제거하는 네트워크 파일 시스템 |
+| Venti | FAST 2002 | 블록 해시를 주소로 쓰는 보관용 저장소. 한 번 쓰면 바뀌지 않음 |
+| Data Domain | FAST 2008 | 해시 기반 중복 제거 파일 시스템, 인덱스 병목 해결 |
+| Git | – | 객체를 내용 해시로 식별, 여러 객체를 packfile로 묶어 저장 |
+| IPFS | arXiv 2014 | 내용 주소 기반 분산 파일 시스템 |
+
+**CAS의 성질과 본 연구에서의 의미**
+
+| 성질 | 의미 |
+|---|---|
+| 중복 제거 | 같은 내용은 한 번만 저장된다. 예: 같은 라인의 지시문·매뉴얼 KV |
+| 불변성 | 한 번 쓴 객체는 바뀌지 않으므로 복제본이 낡지 않고, 일관성 관리가 간단하다. |
+| 위치 독립 | 이름이 위치와 무관하므로, 객체를 옮기거나 복제해도 이름이 바뀌지 않는다. 재분할과 장애 대응이 위치 변경만으로 끝난다. |
+| 검증 | 읽은 데이터가 기대한 내용인지 해시로 확인할 수 있다. |
+| 묶음 저장 | 작은 객체를 큰 파일로 묶고(packfile) 인덱스로 찾는다. 소파일 메타데이터 비용을 줄인다. |
+
+**LLM KV에 CAS를 적용할 때의 차이점**
+1. **주소 구성.** KV는 앞부분 전체와 가중치 버전에 의존하므로, 주소는 chunk 내용만이 아니라 앞부분 체인 해시, 모델·어댑터 버전, layer 구간을 포함해야 한다.
+2. **버전 의존.** 어댑터 버전이 바뀌면 어떤 layer의 KV가 무효가 되는지 주소 설계에 반영해야 한다.
+3. **다른 정책 근거.** 객체의 묶음, 배치, 보존은 해시만으로 정할 수 없다. 그래서 IoT 의미 정보(설비, 시간, 이상 여부)를 별도 속성으로 둔다.
+
+### 2.6 분산 파일 시스템과 Lustre
+
+#### 2.6.1 DFS 개요
 
 | DFS | 구조 | 특징 |
 |---|---|---|
-| Lustre | 메타데이터와 데이터 서버 분리 | HPC와 클라우드(Amazon FSx for Lustre 등)에서 널리 쓰인다. 파일 단위로 데이터 서버를 명시적으로 지정할 수 있다. |
-| Ceph | CRUSH 해시로 객체 위치 결정 | 블록·객체·파일을 모두 지원한다. 위치를 사용자가 직접 지정하기 어렵다. |
-| BeeGFS | Lustre와 유사한 구조 | 설정이 간단하다. |
-| HDFS | 대용량 블록, 복제 | 배치 분석용이며 POSIX를 완전히 지원하지 않는다. |
+| Lustre | 메타데이터와 데이터 서버 분리 | HPC와 클라우드에서 널리 쓰인다. 파일 단위로 데이터 서버를 지정할 수 있다. |
+| Ceph | CRUSH 해시로 객체 위치 결정 | 위치를 사용자가 지정하기 어렵다. |
+| BeeGFS | Lustre와 유사 | 설정이 간단하다. |
+| HDFS | 대용량 블록, 복제 | POSIX를 완전히 지원하지 않는다. |
 
-본 연구는 Lustre를 사용한다. 이유는 다음과 같다.
-1. 파일과 디렉터리 단위로 데이터 서버(OST)를 직접 지정할 수 있다.
-2. 레이아웃, 복제, QoS, 작업별 통계, 캐시 제한 기능을 갖춘다.
-3. 원 IFLustre 연구를 계승한다.
+본 연구는 Lustre를 사용한다. 파일과 디렉터리 단위로 OST를 지정할 수 있고, 레이아웃·복제·QoS·작업 통계·캐시 제한 기능을 갖추며, IFLustre를 계승하기 때문이다. CoStripe의 KV 저장소는 Lustre 위에 구현한다. 주소에서 경로를 정하고, OST는 레이아웃으로 정한다.
 
-#### 2.5.2 Lustre 구조
+#### 2.6.2 Lustre 구조
 
 | 구성 요소 | 역할 |
 |---|---|
-| MGS (Management Server) | 파일 시스템 설정 관리 |
-| MDS / MDT (Metadata Server / Target) | 이름 공간, 파일 속성, 파일 레이아웃 관리 |
-| OSS / OST (Object Storage Server / Target) | 파일 데이터 저장. OSS 하나가 OST 하나 이상을 관리 |
-| Client | POSIX 인터페이스 제공. 파일 레이아웃에 따라 OST에 직접 I/O |
-| LNet | Lustre 네트워크 계층. TCP(ksocklnd), InfiniBand 등 지원 |
-| OSD 백엔드 | OST의 로컬 파일 시스템. ldiskfs(ext4 기반) 또는 ZFS |
+| MGS | 파일 시스템 설정 관리 |
+| MDS / MDT | 이름 공간, 파일 속성, 레이아웃 관리 |
+| OSS / OST | 파일 데이터 저장 |
+| Client | POSIX 인터페이스, OST에 직접 I/O |
+| LNet | 네트워크 계층 (TCP는 ksocklnd) |
+| OSD 백엔드 | ldiskfs 또는 ZFS |
 
-#### 2.5.3 Lustre 레이아웃과 관리 기능
+#### 2.6.3 Lustre 레이아웃과 관리 기능
 
 | 기능 | 설명 | 본 연구에서의 용도 |
 |---|---|---|
-| Striping (`lfs setstripe -c -S -i`) | 파일을 stripe size 단위로 나누어 stripe count개 OST에 round-robin 배치. `-i`로 시작 OST 지정 | LG 파일과 KV 파일의 OST 지정 |
-| 디렉터리 default layout | 디렉터리에 레이아웃을 설정하면 새 파일이 상속 | stage별 KV 디렉터리 배치 |
-| PFL (Progressive File Layout) | 파일 오프셋 구간마다 다른 레이아웃(컴포넌트) 지정 | 단일 가중치 파일의 layer 구간별 OST 지정 (대안) |
-| DoM (Data-on-MDT) | 작은 파일의 앞부분을 MDT에 저장 | IoT 소파일 수집 부하 감소 (선택) |
-| FLR (File Level Redundancy) | 파일 단위 복제본(mirror) 생성(`lfs mirror create/extend`), 읽기 시 사용 가능한 mirror 선택, 비동기 동기화(`lfs mirror resync`) | 가중치와 공통 prefix KV의 복제, 체크포인트의 원격 복제 |
-| `lfs migrate` | 파일 데이터를 새 레이아웃으로 이동 | 재분할과 재배치 |
-| NRS TBF (Network Request Scheduler, Token Bucket Filter) | 요청 분류(jobid, NID, opcode 등)별 토큰 버킷 속도 제한. 단위는 RPC/s | 체크포인트·복제·재배치 I/O 속도 제한 |
-| Job stats | jobid별 OST/MDT I/O 통계 | I/O 클래스별 부하 측정 |
-| CPT (CPU Partition Table) | Lustre 서비스 스레드를 CPU 파티션에 고정 | OSS 스레드와 LLM 연산의 코어 분리 |
-| Client 캐시 상한 (`llite.*.max_cached_mb`) | client가 캐시하는 데이터의 최대량. 현재 매뉴얼 기준 기본값은 client RAM의 1/2 | 8GB 노드에서 반드시 상한 설정 |
-| 체크섬 (`osc.*.checksums`) | 데이터 전송 체크섬 계산 | CPU 사용량에 영향, 측정 변수 |
+| Striping (`lfs setstripe -c -S -i`) | stripe count, stripe size, 시작 OST 지정 | LG 파일과 KV pack 파일의 OST 지정 |
+| 디렉터리 default layout | 새 파일이 상속 | 컨텍스트·LG별 디렉터리 배치 |
+| PFL | 파일 구간별 레이아웃 | 단일 가중치 파일의 구간별 OST 지정 (대안) |
+| DoM | 작은 파일을 MDT에 저장 | IoT 소파일, 인덱스 파일 (선택) |
+| FLR (`lfs mirror create/extend/resync`) | 파일 단위 복제 | 가중치, 공유 prefix KV, 봉인된 pack, 체크포인트의 원격 복제 |
+| `lfs migrate` | 경로를 유지한 채 데이터를 새 레이아웃으로 이동 | 재분할·재배치. 경로가 유지되므로 CAS의 위치 독립성과 맞음 |
+| NRS TBF | jobid 등 분류별 RPC 속도 제한 | 복제, 재배치, 재생성, 압축 I/O 속도 제한 |
+| Job stats | jobid별 I/O 통계 | I/O 클래스별 부하 측정 |
+| CPT | 서비스 스레드의 CPU 고정 | OSS 스레드와 LLM 연산의 코어 분리 |
+| `llite.*.max_cached_mb` | client 캐시 상한 (현재 매뉴얼 기준 기본값은 RAM의 1/2) | 8GB 노드에서 반드시 상한 설정 |
+| `osc.*.checksums` | 전송 체크섬 | CPU 사용량 변수 |
 
-#### 2.5.4 엣지에서 Lustre를 쓸 때의 고려 사항
+#### 2.6.4 엣지에서 Lustre를 쓸 때의 고려 사항
 
-- **client와 서버의 동시 운용.** Lustre 운영 지침은 같은 노드에서 client와 서버(OSS)를 함께 운용하는 구성을 권장하지 않는다. 메모리 압박 상황에서 서버와 client가 서로의 메모리 회수를 기다리는 문제가 생길 수 있기 때문이다. 8GB 노드에서는 메모리 압박이 일상적이므로 이 문제가 더 중요하다. 엣지의 하이퍼컨버지드 구성에서는 이 구성을 피할 수 없으므로 동작 안정성을 직접 확인해야 한다(4.1절).
-- **원격 I/O가 로컬 메모리를 쓴다.** 다른 노드가 이 노드의 OST를 읽거나 쓰면, 이 노드의 OSS가 그 데이터를 처리하며 이 노드의 메모리(서버 측 캐시, 버퍼)와 CPU를 사용한다. 따라서 다른 노드의 I/O가 이 노드의 LLM 연산에 영향을 준다.
-- **같은 노드 OST 접근 경로.** 같은 노드의 OST에 접근할 때 NIC를 거치지 않는 LNet 경로가 쓰이는지 확인해야 한다. 이 경로에서도 Lustre RPC 처리 비용(CPU, 메모리 복사)은 남는다.
-- **OSD 백엔드.** ZFS를 사용하면 ARC 캐시가 unified memory를 점유하므로 크기를 작게 제한해야 한다. 가능하면 ldiskfs를 사용한다.
-- **MDS 단일 장애점.** MDS를 N0 한 대에 두므로 N0 장애 시 파일 시스템 전체가 중단된다. MDS 이중화는 본 연구 범위 밖이다.
+- **client와 서버의 동시 운용.** Lustre는 같은 노드에서 client와 OSS를 함께 운용하는 구성을 권장하지 않는다(메모리 압박 시 문제 가능성). 8GB 노드에서는 메모리 압박이 일상적이므로 직접 확인해야 한다.
+- **원격 I/O가 로컬 메모리를 쓴다.** 다른 노드가 이 노드의 OST를 읽거나 쓰면, 이 노드의 OSS가 메모리와 CPU를 사용한다.
+- **같은 노드 OST 접근 경로.** NIC를 거치지 않는 경로가 쓰이는지 확인이 필요하다. 이 경로에서도 RPC 처리 비용은 남는다.
+- **OSD 백엔드.** ZFS를 쓰면 ARC 상한을 작게 잡아야 한다.
+- **MDS 단일 장애점.** MDS 이중화는 본 연구 범위 밖이다.
 
-### 2.6 원 연구: IFLustre
+### 2.7 원 연구: IFLustre
 
-#### 2.6.1 MASCOTS 2022 버전
+#### 2.7.1 MASCOTS 2022 버전
 
-IFLustre는 Lustre에서 여러 애플리케이션이 OSS를 공유할 때 생기는 간섭을 줄이는 저장 할당 기법이다. 구성 요소는 두 가지이다.
+IFLustre는 Lustre에서 여러 애플리케이션이 OSS를 공유할 때 생기는 간섭을 줄이는 저장 할당 기법이다.
 
-- **Application Analyzer**
-  - 같은 애플리케이션 이름의 과거 실행 로그(SLURM, Lustre Monitoring Tool, Darshan)로 stripe count와 stripe size를 결정한다.
-  - 처리량과 실행 시간을 ML 모델로 예측한다.
-- **OSS Allocator:** 세 가지 정책을 순서대로 적용한다.
-  1. Interference-free allocation: 다른 애플리케이션이 쓰지 않는 OSS를 할당한다.
-  2. Throughput-aware allocation: 여유 처리량이 충분한 OSS를 할당한다.
-  3. Runtime-aware allocation: 가장 빨리 비는 OSS를 기다렸다가 할당한다.
+- **Application Analyzer:** 같은 애플리케이션 이름의 과거 실행 로그로 stripe count와 stripe size를 정하고, 처리량과 실행 시간을 ML로 예측한다.
+- **OSS Allocator:** 세 정책을 순서대로 적용한다.
+  1. Interference-free allocation
+  2. Throughput-aware allocation
+  3. Runtime-aware allocation
 
 관찰 결과는 다음과 같다.
 - 애플리케이션 성능은 가장 느린 OSS가 결정한다.
 - 공유 상황에서도 많은 OSS를 쓰는 것이 유리할 수 있다.
 - 총 처리량이 하드웨어 한계에 가까우면 OSS 공유가 성능을 떨어뜨린다.
 
-평가에서 Lustre 기본 설정 대비 최대 47% 개선했다.
+평가에서 최대 47% 개선했다.
 
-#### 2.6.2 IEEE IoTJ 버전 (Reject & Resubmit)
+#### 2.7.2 IEEE IoTJ 버전 (Reject & Resubmit)
 
-클라우드 DFS 환경에서 IoT 데이터셋 6종을 대상으로 확장했다. 다음 두 가지를 추가했다.
-- 파일 크기에 따른 striping 효과 차이
-- 쓰기 시점 배치와 읽기 최적 배치의 차이 (read-aware relocation)
+클라우드 DFS와 IoT 데이터셋 6종으로 확장하고, 파일 크기에 따른 striping 효과 차이와 read-aware relocation을 추가했다. 최대 47.8% 개선을 보고했다.
 
-최대 47.8% 개선을 보고했다.
-
-#### 2.6.3 새 환경에서의 한계
+#### 2.7.3 새 환경에서의 한계
 
 | 항목 | IFLustre의 가정 | Orin Nano 엣지 LLM 환경 |
 |---|---|---|
-| 노드 역할 | 스토리지 서버와 연산 노드가 분리 | 같은 장치가 둘 다 수행 |
-| 노드 자원 | 서버급 메모리·CPU, 10GbE | 8GB 공유 메모리, 6코어, 1GbE |
-| 간섭 범위 | OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 (메모리 용량, CPU, 메모리 대역폭, 네트워크) |
-| 성능을 결정하는 자원 | OSS 대역폭 | 메모리 용량과 NIC 대역폭이 OSS 대역폭보다 먼저 한계에 도달 |
-| striping 효과 | stripe count 증가로 대역폭 확대 | 1GbE에서는 원격 stripe가 가장 느린 stripe가 되어 오히려 불리 |
-| 데이터 구조 | 애플리케이션별 파일 집합 | layer 구조를 가진 가중치, KV, 어댑터, 체크포인트 |
-| 소비 위치 | 고려하지 않음 | 객체마다 소비 노드가 정해짐 (pipeline stage) |
-| 워크로드 | 독립 애플리케이션 | 서로 데이터를 주고받는 라이프사이클, 같은 파이프라인에서 서빙과 학습을 함께 실행 |
-| 결정 근거 | 같은 애플리케이션의 과거 로그 | 새 어댑터·모델 버전은 로그 없음 |
-| 결정 시점 | 애플리케이션 시작 시 1회 | 이벤트마다 반복 |
+| 노드 역할 | 스토리지와 연산 분리 | 같은 장치가 둘 다 수행 |
+| 노드 자원 | 서버급, 10GbE | 8GB 공유 메모리, 6코어, 1GbE |
+| 간섭 범위 | OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 |
+| striping 효과 | stripe count 증가로 대역폭 확대 | 1GbE에서는 원격 stripe가 가장 느린 stripe가 되어 불리 |
+| 데이터 | 애플리케이션별 파일 | layer 구조와 버전 의존성을 가진 LLM 상태(가중치, KV, 어댑터, activation) |
+| 데이터 식별 | 파일 경로 | 내용 (같은 내용 = 같은 객체) |
+| 소비 위치 | 고려하지 않음 | 객체마다 소비 stage가 정해짐 |
+| 워크로드 | 독립 애플리케이션 | 데이터를 주고받는 라이프사이클 |
+| 결정 근거 | 같은 앱의 과거 로그 | 새 어댑터·컨텍스트는 로그 없음 |
+| 결정 시점 | 시작 시 1회 | 이벤트마다 |
 
-### 2.7 관련 연구
+### 2.8 관련 연구
 
-#### 2.7.1 저장 I/O 간섭과 QoS
+#### 2.8.1 저장 I/O 간섭과 QoS
 
-대규모 공유 스토리지에서 애플리케이션 간 I/O 간섭은 오래 연구된 주제이다.
-- **스케줄링·조정:** CALCioM은 애플리케이션 사이의 I/O 조정 정책을 동적으로 선택한다. GIFT는 쿠폰 기반 throttle-and-reward로 대역폭을 공정하게 나눈다. LoomIO는 객체 단위 간섭을 감시해 요청을 조정한다. Lustre NRS TBF는 규칙 기반 토큰 버킷으로 클라이언트나 작업별 요청 속도를 제한한다.
-- **배치·설정:** iez는 OSS 용량 불균형을 줄이도록 데이터를 배치한다. DCA-IO와 A2FL은 실행 로그나 실시간 접근 패턴으로 파일 레이아웃을 자동 조정한다.
-- **클라우드 장치 수준:** Radio, Jaliminche et al., CoFS는 클라우드 저장 장치 수준의 간섭을 분석하거나 공정성을 보장한다.
+공유 스토리지의 간섭을 다룬 연구는 세 갈래가 있다.
+- **스케줄링·조정:** CALCioM, GIFT, LoomIO, Lustre NRS TBF
+- **배치·설정:** iez, DCA-IO, A2FL
+- **장치 수준:** Radio, Jaliminche et al., CoFS
 
-이 연구들은 모두 스토리지 서버가 연산과 분리된 환경에서 스토리지 사이의 간섭을 다룬다.
-
-| 연구 | 발표 | 방법 | 환경 | 본 연구와의 차이 |
-|---|---|---|---|---|
-| CALCioM | IPDPS 2014 | 애플리케이션 간 I/O 조정 정책 동적 선택 | HPC | 연산 간섭 없음 |
-| GIFT | FAST 2020 | 쿠폰 기반 대역폭 throttle/reward | HPC PFS | 연산 간섭 없음 |
-| iez | IPDPS 2019 | OSS 용량 불균형 완화 배치 | HPC PFS | 소비 위치·연산 미고려 |
-| LoomIO | TPDS 2021 | 객체 수준 간섭 감시와 요청 조정 | DFS | 연산 간섭 없음 |
-| Lustre NRS TBF | SC 2017 | 규칙 기반 토큰 버킷 요청 스케줄러 | Lustre | 본 연구에서 실행 수단으로 사용 |
-| DCA-IO | CCGrid 2019 | 실행 로그 기반 DFS 설정 조정 | HPC | 로그 필요, 단일 앱 |
-| A2FL | IPDPS 2024 | 실시간 접근 패턴 기반 레이아웃 | HPC | 연산 간섭 없음 |
-| Radio | CLOUD 2022 | 가상화 디스크 I/O 간섭 분석 | 클라우드 | 장치 수준 |
-| Jaliminche et al. | SoCC 2023 | SSD 간섭 모델링 | 클라우드 SSD | 장치 수준 |
-| CoFS | TCAD 2024 | NVMe SSD 공정성 | 클라우드 | 장치 수준 |
-| IFLustre | MASCOTS 2022 | 예측 기반 OSS 할당 3정책 | Lustre | 본 연구의 기반 |
-
-#### 2.7.2 자원 공존과 간섭 격리
-
-데이터센터에서는 지연에 민감한 서비스와 배치 작업을 같은 서버에 두면서 간섭을 줄이는 연구가 있었다. Heracles, PARTIES, Caladan은 CPU 코어, 캐시, 메모리 대역폭, 네트워크를 동적으로 나누어 지연 민감 서비스의 SLO를 지킨다. 실시간 시스템 분야의 MemGuard는 멀티코어에서 코어별 메모리 대역폭을 예약한다.
-
-본 연구의 저장-연산 간섭은 이 문제의 한 형태이다. 차이는 세 가지이다.
-1. 간섭원이 DFS의 서버 측 I/O 처리이다. 그래서 어느 장치가 그 I/O를 처리할지를 데이터 배치로 바꿀 수 있다.
-2. 피해자가 파이프라인 stage여서, 한 장치의 지연이 전체로 전파된다.
-3. 8GB 장치에서는 대역폭과 코어보다 메모리 용량이 먼저 한계에 도달한다.
+모두 스토리지와 연산이 분리된 환경을 가정한다.
 
 | 연구 | 발표 | 방법 | 본 연구와의 차이 |
 |---|---|---|---|
-| Heracles | ISCA 2015 | 지연 민감 서비스와 배치 작업의 자원 분할 | 저장 배치로 간섭 위치를 바꾸는 방법 없음 |
-| PARTIES | ASPLOS 2019 | 여러 지연 민감 서비스의 자원 분할 | 동일 |
-| Caladan | OSDI 2020 | 마이크로초 단위 코어 재할당 | 동일 |
-| MemGuard | RTAS 2013 | 코어별 메모리 대역폭 예약 | 통합 메모리 SoC 격리 수단으로 참고 |
+| CALCioM | IPDPS 2014 | 앱 간 I/O 조정 | 연산 간섭 없음 |
+| GIFT | FAST 2020 | 쿠폰 기반 대역폭 관리 | 연산 간섭 없음 |
+| iez | IPDPS 2019 | OSS 용량 불균형 완화 | 소비 위치 미고려 |
+| LoomIO | TPDS 2021 | 객체 수준 요청 조정 | 연산 간섭 없음 |
+| Lustre NRS TBF | SC 2017 | 토큰 버킷 요청 스케줄러 | 본 연구의 실행 수단 |
+| DCA-IO | CCGrid 2019 | 로그 기반 설정 조정 | 로그 필요 |
+| A2FL | IPDPS 2024 | 실시간 패턴 기반 레이아웃 | 연산 간섭 없음 |
+| Radio / Jaliminche et al. / CoFS | CLOUD 2022 / SoCC 2023 / TCAD 2024 | 장치 수준 간섭 | 장치 수준 |
+| IFLustre | MASCOTS 2022 | 예측 기반 OSS 할당 | 본 연구의 기반 |
 
-#### 2.7.3 LLM 모델 로딩과 오프로딩
+#### 2.8.2 자원 공존과 간섭 격리
 
-모델 로딩 시간과 메모리 부족 문제를 저장 계층으로 해결하는 연구가 있다.
-- **로딩 시간 단축:** ServerlessLLM은 서버리스 환경에서 다계층 체크포인트 저장과 로딩 최적화로 cold start를 줄인다.
-- **오프로딩 실행:** LLM in a flash, PowerInfer, PowerInfer-2, FlexGen은 가중치 일부를 플래시나 CPU 메모리에 두고 필요한 부분만 읽는다.
-- **엣지 분산:** prima.cpp는 mmap 기반 오프로딩과 파이프라인을 결합해 가정용 장치 클러스터에서 30–70B 모델을 실행한다.
-- **I/O 특성 분석:** NVMe SSD로 모델과 KV를 오프로딩할 때의 I/O 특성을 분석한 연구도 있다.
+Heracles(ISCA 2015), PARTIES(ASPLOS 2019), Caladan(OSDI 2020)은 한 서버의 자원을 나누어 지연 민감 서비스의 SLO를 지킨다. MemGuard(RTAS 2013)는 코어별 메모리 대역폭을 예약한다. 본 연구와의 차이는 세 가지이다.
+- 간섭원이 DFS 서버 측 I/O라서 데이터 배치로 간섭 위치를 바꿀 수 있다.
+- 피해자가 파이프라인 stage라서 한 노드의 지연이 전체로 전파된다.
+- 8GB 장치에서는 메모리 용량이 먼저 한계에 도달한다.
 
-이 연구들은 장치 한 대 또는 서버 한 대의 로컬 저장 계층을 다룬다. 여러 장치가 공유하는 DFS에서 저장 위치가 다른 장치의 연산에 주는 영향은 다루지 않는다.
+#### 2.8.3 LLM 모델 로딩과 오프로딩
 
-| 연구 | 발표 | 방법 | 환경 | 본 연구와의 차이 |
-|---|---|---|---|---|
-| ServerlessLLM | OSDI 2024 | 다계층 체크포인트 저장, 빠른 로딩 | GPU 서버 | 공유 DFS, 연산 간섭 없음 |
-| LLM in a flash | ACL 2024 | 플래시에서 필요한 가중치만 로드 | 장치 1대 | 로컬 플래시 |
-| PowerInfer | SOSP 2024 | hot/cold 뉴런 분리, CPU-GPU 혼합 | PC | 단일 장치 |
-| PowerInfer-2 | arXiv 2024 | 스마트폰 플래시 기반 추론 | 스마트폰 | 단일 장치 |
-| FlexGen | ICML 2023 | GPU/CPU/디스크 오프로딩 스케줄 | 단일 GPU | 처리량 중심 오프라인 |
-| prima.cpp | arXiv 2025 | mmap 오프로딩 + 파이프라인 링 | 가정용 장치 클러스터 | 장치별 로컬 디스크 |
-| NVMe 오프로딩 I/O 특성 분석 | ACM 2025 | 모델·KV 오프로딩 I/O 측정 | NVMe SSD | 단일 장치 측정 |
+ServerlessLLM(OSDI 2024), LLM in a flash(ACL 2024), PowerInfer(SOSP 2024), PowerInfer-2(arXiv 2024), FlexGen(ICML 2023), prima.cpp(arXiv 2025), NVMe 오프로딩 I/O 특성 분석(ACM 2025)은 로딩 시간과 메모리 부족을 다룬다. 모두 장치·서버 한 대의 로컬 저장 계층을 대상으로 한다.
 
-#### 2.7.4 KV cache 저장과 재사용 (데이터센터)
-
-- **GPU 메모리 안의 재사용:** vLLM은 PagedAttention으로 KV를 블록 단위로 관리하고 같은 prefix를 공유한다. SGLang은 radix tree로 prefix를 재사용한다.
-- **하위 계층으로의 확장:** CachedAttention은 멀티턴 대화의 KV를 CPU 메모리와 디스크에 저장해 재사용한다. Mooncake는 KV cache를 중심으로 prefill과 decode를 분리하고, 클러스터의 CPU 메모리와 SSD를 KV 저장 풀로 사용한다. LMCache는 엔진과 독립적인 KV cache 계층으로, CPU 메모리, 로컬·원격 디스크, Redis 등에 KV를 저장한다(기본 chunk 256토큰).
-- **전송·압축·저장 최적화:** CacheGen은 KV를 압축해 네트워크로 스트리밍한다. CacheBlend는 prefix가 아닌 위치의 KV 재사용을 다룬다. IMPRESS는 중요도에 따라 prefix KV를 다계층 저장 장치에 나누어 둔다.
-
-이 연구들은 GPU 서버와 분리된 메모리·스토리지 풀을 가정하고, 고대역폭 네트워크(RDMA 등)를 사용한다.
+#### 2.8.4 KV cache 저장과 재사용 (데이터센터)
 
 | 연구 | 발표 | 방법 | 본 연구와의 차이 |
 |---|---|---|---|
-| vLLM (PagedAttention) | SOSP 2023 | 블록 단위 KV 관리, prefix 공유 | GPU 메모리 안에서만 재사용 |
-| SGLang (RadixAttention) | NeurIPS 2024 | radix tree prefix 재사용 | 동일 |
-| CachedAttention | USENIX ATC 2024 | 멀티턴 KV를 메모리·디스크 계층에 저장 | 서버 내부 계층 |
-| Mooncake | FAST 2025 | KV 중심 분리형 서빙, 클러스터 메모리·SSD 풀 | 분리형 풀, RDMA |
-| LMCache | arXiv 2025 | 엔진 독립 KV 계층, 다양한 저장 백엔드 | 연산 간섭 고려 없음 |
-| CacheGen | SIGCOMM 2024 | KV 압축과 스트리밍 | 네트워크 전송 중심 |
-| CacheBlend | EuroSys 2025 | 비-prefix KV 재사용 | 재사용 범위 확장 |
-| IMPRESS | FAST 2025 | 중요도 기반 다계층 prefix KV 저장 | 단일 서버 다계층 |
+| vLLM | SOSP 2023 | PagedAttention, 블록 해시 prefix 재사용 | GPU 메모리 안, 질의 시점 생성 |
+| SGLang | NeurIPS 2024 | radix tree prefix 재사용 | 동일 |
+| CachedAttention | USENIX ATC 2024 | 멀티턴 KV를 메모리·디스크에 저장 | 서버 내부, 질의 시점 생성 |
+| Mooncake | FAST 2025 | KV 중심 분리형 서빙, 블록 해시 기반 KV 풀 | 분리형 풀, RDMA |
+| LMCache | arXiv 2025 | 엔진 독립 KV 계층, chunk 해시(256토큰) | 질의 시점 생성, 연산 간섭 미고려 |
+| CacheGen | SIGCOMM 2024 | KV 압축·스트리밍 | 전송 중심 |
+| IMPRESS | FAST 2025 | 중요도 기반 다계층 prefix KV | 단일 서버 |
 
-#### 2.7.5 엣지 KV cache 오프로딩
+이 연구들은 블록·chunk 해시로 KV를 식별한다는 점에서 이미 content addressing을 사용한다. 그러나 KV를 질의 시점에 만들고, 분리된 저장 풀을 가정한다.
 
-최근 엣지 장치에서 KV를 SSD로 오프로딩하는 연구가 나오고 있다.
-- **KVSwap:** Jetson AGX Orin에서 NVMe(약 1.8GB/s)와 eMMC(약 250MB/s)를 대상으로 장문 컨텍스트 KV를 디스크로 교체한다.
-- **Dual-Blade:** 파일 기반 KV 오프로딩이 커널 page cache에 의존해 cache thrashing을 일으키는 문제를 지적한다. 이를 해결하기 위해 page cache 경로와 NVMe 직접 경로를 함께 쓴다.
-- **MemLLM:** 장치 내 RAG를 위해 미리 계산한 KV를 플래시에 저장한다.
-- **MTDS:** 자원 제약 환경에서 DRAM과 SSD에 걸친 다계층 KV 저장을 제안한다.
+#### 2.8.5 KV 사전 계산과 위치 독립 재사용
 
-이 연구들은 장치 한 대의 로컬 저장 장치를 다룬다. Dual-Blade가 지적한 page cache 문제는 unified memory를 쓰는 Jetson에서 저장 I/O가 연산 메모리에 영향을 준다는 본 연구의 가설과 같은 방향이다. 다만 본 연구는 다음을 추가로 다룬다.
-- 여러 장치가 서로의 KV를 저장해 주는 공유 DFS 구성
-- 그 저장 처리가 다른 장치의 LLM 연산에 주는 영향
-- 학습 I/O와의 공존
+| 연구 | 발표 | 방법 | 본 연구와의 차이 |
+|---|---|---|---|
+| Prompt Cache | MLSys 2024 | 스키마로 정의한 프롬프트 모듈 단위 KV 재사용 | 정적 모듈, 스트림 아님 |
+| CacheBlend | EuroSys 2025 | 여러 문서 KV를 결합하고 일부 토큰을 다시 계산 | 근사 재사용, RAG 대상 |
+| EPIC | arXiv 2024 (ICML 2025) | 위치 독립 컨텍스트 캐싱 | 근사 재사용 |
+| TurboRAG | arXiv 2024 | RAG 문서 chunk KV를 미리 계산 | 고정 문서 |
+| MemLLM | arXiv 2026 | 장치 내 RAG용 사전 계산 KV를 플래시에 저장 | 고정 문서, 단일 장치 |
+
+본 연구와의 차이는 네 가지이다.
+1. **스트림 대상.** 계속 늘어나는 IoT 스트림의 KV를 수집 시점에 만든다.
+2. **근사 없음.** 설비 단위 이어 쓰기 컨텍스트로 근사 없이 재사용한다.
+3. **압축과 버전.** 컨텍스트 한계에서 의미 기반 압축을 하고, 어댑터 버전 변화에 따른 부분 재생성을 다룬다.
+4. **엣지 DFS.** 하이퍼컨버지드 엣지 DFS에서 배치와 간섭을 함께 다룬다.
+
+#### 2.8.6 엣지 KV cache 오프로딩
 
 | 연구 | 발표 | 환경 | 방법 | 본 연구와의 차이 |
 |---|---|---|---|---|
-| KVSwap | arXiv 2025 | Jetson AGX Orin, NVMe/eMMC | 디스크 인지 KV 교체 | 단일 장치, 로컬 디스크 |
-| Dual-Blade | arXiv 2026 | 엣지 장치, NVMe | page cache 경로와 NVMe 직접 경로 병행 | 단일 장치 |
-| MemLLM | arXiv 2026 | Jetson Orin 등 | 저장 장치 내 RAG KV 가속 | 단일 장치, RAG |
+| KVSwap | arXiv 2025 | Jetson AGX Orin, NVMe 약 1.8GB/s | 디스크 인지 KV 교체 | 단일 장치 |
+| Dual-Blade | arXiv 2026 | 엣지, NVMe | page cache 경로와 NVMe 직접 경로 병행 (page cache thrashing 지적) | 단일 장치 |
 | MTDS | Complex & Intelligent Systems 2025 | 자원 제약 엣지 | DRAM-SSD 다계층 KV | 단일 장치 |
 
-#### 2.7.6 엣지 분산 LLM 추론
-
-- **PipeEdge:** 이기종 엣지 장치에서 연산, 메모리, 네트워크를 고려한 파이프라인 분할을 제안했다.
-- **EdgeShard:** 엣지 장치와 클라우드 서버에 걸쳐 장치 선택과 모델 분할을 동적 계획법으로 함께 결정한다. IEEE IoTJ에 발표되었으며, Jetson AGX Orin과 Orin NX로 구성한 테스트베드를 사용했다.
-- **Galaxy:** 엣지 장치 협력으로 transformer 추론을 수행한다.
-- **LOIP:** Jetson AGX Orin과 Xavier NX로 구성한 클러스터에서 파이프라인과 layer 오프로딩을 결합해 70B 모델을 손실 없이 실행한다. 오프로딩된 layer 로드를 연산·통신과 겹치는 스케줄을 사용한다.
-- **오픈소스:** exo, llama.cpp RPC.
-
-이 연구들은 분할을 연산량, 메모리, 네트워크 기준으로 정한다. 저장 데이터의 위치, KV 저장, 학습 I/O가 분할에 주는 영향은 다루지 않는다.
+#### 2.8.7 엣지 분산 LLM 추론
 
 | 연구 | 발표 | 환경 | 분할 기준 | 본 연구와의 차이 |
 |---|---|---|---|---|
 | PipeEdge | DSD 2022 | 이기종 엣지 | 연산, 메모리, 네트워크 | 저장 I/O 미고려 |
 | EdgeShard | IEEE IoTJ 2025 | Jetson Orin + 클라우드 | 장치 선택 + 분할 (동적 계획법) | 저장 I/O, KV, 학습 미고려 |
-| Galaxy | INFOCOM 2024 | 엣지 장치 협력 | 연산, 통신 | 동일 |
-| LOIP | arXiv 2025 | Jetson AGX Orin, Xavier NX | 파이프라인 + 로컬 layer 오프로딩 | 장치별 로컬 저장, 공유 DFS 없음 |
-| prima.cpp | arXiv 2025 | 가정용 장치 | 장치 성능, 디스크 속도 | 장치별 로컬 디스크 |
+| Galaxy | INFOCOM 2024 | 엣지 협력 | 연산, 통신 | 동일 |
+| LOIP | arXiv 2025 | Jetson AGX Orin, Xavier NX | 파이프라인 + 로컬 layer 오프로딩 | 공유 DFS 없음 |
+| prima.cpp | arXiv 2025 | 가정용 장치 | 장치 성능, 디스크 속도 | 로컬 디스크 |
 
-#### 2.7.7 엣지 학습, 추론·학습 공동 실행, 어댑터 서빙
-
-- **엣지 학습:** PockEngine은 중요하지 않은 layer와 채널의 갱신을 생략하는 희소 역전파로 Jetson Orin에서 LLaMA2-7B 미세조정 속도를 높였다. MobiZO는 zeroth-order 방식으로 엣지 장치의 LLM 미세조정 메모리를 줄인다.
-- **추론·학습 공동 실행:** FlexLLM은 같은 GPU에서 LLM 추론과 PEFT 미세조정을 토큰 단위로 함께 실행하면서 추론 SLO를 지킨다. ConServe와 DeltaServe도 온라인 추론과 오프라인 작업(미세조정 포함)의 공동 실행을 다룬다. 본 연구의 적응 학습은 이 방식을 엣지 파이프라인에 적용한 형태이다.
-- **어댑터 서빙:** S-LoRA와 Punica는 많은 LoRA 어댑터를 동시에 서빙하는 GPU 커널과 메모리 관리를 제안했다. EdgeLoRA는 엣지 장치에서 여러 사용자의 LoRA 어댑터 서빙을 다룬다.
-
-이 연구들은 학습과 추론의 연산 자원 공유에 집중한다. 공동 실행에서 생기는 체크포인트·복제 I/O가 공유 저장 계층을 통해 다른 장치의 서빙에 주는 영향은 다루지 않는다.
+#### 2.8.8 엣지 학습, 추론·학습 공동 실행, 어댑터 서빙
 
 | 연구 | 발표 | 내용 | 본 연구와의 차이 |
 |---|---|---|---|
-| LoRA / QLoRA | ICLR 2022 / NeurIPS 2023 | 저랭크 적응 / 4-bit 기반 LoRA | 본 연구는 FP16 base 공유 LoRA 사용 |
-| PockEngine | MICRO 2023 | 엣지 희소 역전파 미세조정 | 학습 단독, 단일 장치 |
+| LoRA / QLoRA | ICLR 2022 / NeurIPS 2023 | 저랭크 적응 | 상위 LG 한정 LoRA로 사용 |
+| PockEngine | MICRO 2023 | Jetson Orin 희소 역전파 미세조정 | 학습 단독 |
 | MobiZO | EMNLP 2025 | 엣지 zeroth-order 미세조정 | 학습 단독 |
-| FlexLLM | arXiv 2024 | 추론과 PEFT 미세조정의 토큰 단위 공동 실행 | 데이터센터 GPU, 저장 I/O 미고려 |
-| ConServe | arXiv 2024 | 온라인·오프라인 작업 공동 실행 | 데이터센터 |
-| DeltaServe | arXiv 2026 | 추론·미세조정 공동 실행 | 데이터센터 |
-| S-LoRA | MLSys 2024 | 대규모 LoRA 동시 서빙 | 데이터센터 서빙 |
-| Punica | MLSys 2024 | 다중 LoRA 서빙 커널 | 데이터센터 서빙 |
-| EdgeLoRA | arXiv 2025 | 엣지 다중 테넌트 LoRA 서빙 | 서빙 단독, 저장 I/O 미고려 |
+| FlexLLM | arXiv 2024 | 추론과 PEFT의 토큰 단위 공동 실행 | 데이터센터, 저장 I/O·KV 유효성 미고려 |
+| ConServe / DeltaServe | arXiv 2024 / 2026 | 온라인·오프라인 공동 실행 | 데이터센터 |
+| S-LoRA / Punica / EdgeLoRA | MLSys 2024 / MLSys 2024 / arXiv 2025 | 다중 LoRA 서빙 | 어댑터 변경에 따른 저장 KV 무효화 미고려 |
 
-#### 2.7.8 학습 체크포인트
+#### 2.8.9 학습 체크포인트
 
-- **CheckFreq:** 체크포인트 빈도를 동적으로 정하고, 스냅샷과 저장을 파이프라인화한다.
-- **Check-N-Run:** 추천 모델 체크포인트의 크기를 줄인다.
-- **Gemini:** 다른 노드의 CPU 메모리에 체크포인트를 두어 복구를 빠르게 한다.
-- **DataStates-LLM:** LLM 체크포인트를 지연·비동기 방식으로 저장한다.
-- **ByteCheckpoint:** 대규모 모델 개발용 통합 체크포인트 시스템을 제안한다.
+CheckFreq(FAST 2021), Check-N-Run(NSDI 2022), Gemini(SOSP 2023), DataStates-LLM(HPDC 2024), ByteCheckpoint(NSDI 2025)는 학습 처리량과 복구 시간을 목표로 한다. 같은 저장 계층·NIC를 쓰는 서빙 지연에 주는 영향은 다루지 않는다.
 
-이 연구들은 학습 처리량과 복구 시간을 목표로 한다. 체크포인트 I/O가 같은 저장 계층과 네트워크를 쓰는 서빙의 지연에 주는 영향은 다루지 않는다.
+#### 2.8.10 Content-addressed 저장과 중복 제거
 
-| 연구 | 발표 | 방법 | 본 연구와의 차이 |
-|---|---|---|---|
-| CheckFreq | FAST 2021 | 동적 빈도, 2단계 스냅샷·저장 | 서빙 공존 미고려 |
-| Check-N-Run | NSDI 2022 | 차분·양자화 체크포인트 | 동일 |
-| Gemini | SOSP 2023 | 원격 CPU 메모리 체크포인트 | 동일 |
-| DataStates-LLM | HPDC 2024 | 지연 비동기 체크포인트 | 동일 |
-| ByteCheckpoint | NSDI 2025 | 통합 체크포인트 시스템 | 동일 |
+LBFS(SOSP 2001), Venti(FAST 2002), Data Domain(FAST 2008), Git, IPFS(2014)는 내용 해시로 데이터를 식별한다. 이 연구들은 일반 데이터를 대상으로 하므로 다음을 다루지 않는다.
+- LLM 상태의 의존성: 앞부분 토큰과 가중치 버전
+- 의미 정보에 따른 정책
+- 연산 노드와 저장 노드가 같을 때의 배치
 
-#### 2.7.9 LLM 기반 시스템·스토리지 튜닝
+#### 2.8.11 LLM 기반 시스템·스토리지 튜닝
 
-- **스토리지:** ION은 LLM으로 HPC I/O 추적(Darshan)을 해석해 성능 문제를 진단한다. STELLAR(SC 2025)는 검색 증강 생성, 도구 사용, 다중 에이전트를 결합해 병렬 파일 시스템 설정을 자율적으로 튜닝한다. 처음 보는 애플리케이션에서도 다섯 번 이내 시도로 최적에 가까운 설정을 찾는다고 보고했다.
-- **데이터베이스:** DB-BERT, GPTuner, λ-Tune은 언어 모델로 매뉴얼과 작업 특성을 해석해 파라미터를 튜닝한다.
+ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나 병렬 파일 시스템 설정을 튜닝한다. DB-BERT(SIGMOD 2022), GPTuner(VLDB 2024), λ-Tune(SIGMOD 2025)은 데이터베이스 설정을 튜닝한다. 모두 단일 대상의 오프라인 튜닝이다. 본 연구의 플래너는 서비스 중 이벤트마다 온라인으로 재계획하고, 검증기로 실행 전 결과를 확인하며, 8GB 장치에서 실행된다.
 
-이 연구들은 한 애플리케이션 또는 한 데이터베이스의 설정을 반복 실행으로 오프라인 탐색한다. 본 연구의 플래너는 다음 점에서 다르다.
-- 서비스 중에 이벤트가 발생할 때마다 온라인으로 재계획한다.
-- 여러 I/O 클래스와 저장-연산 간섭을 함께 다룬다.
-- 8GB 엣지 장치 위에서 실행된다.
+### 2.9 종합 비교와 연구 공백
 
-| 연구 | 발표 | 대상 | 방식 | 본 연구와의 차이 |
-|---|---|---|---|---|
-| ION | HotStorage 2024 | HPC I/O 진단 | LLM 추적 해석 | 진단 중심, 오프라인 |
-| STELLAR | SC 2025 | 병렬 파일 시스템 튜닝 | RAG + 도구 + 다중 에이전트, 반복 실행 | 단일 앱, 오프라인, 연산 간섭 없음 |
-| DB-BERT | SIGMOD 2022 | DB 파라미터 | 매뉴얼 해석 + 강화학습 | DB 대상 |
-| GPTuner | VLDB 2024 | DB 파라미터 | LLM + 베이지안 최적화 | DB 대상 |
-| λ-Tune | SIGMOD 2025 | DB 설정 | LLM 프롬프트 기반 | DB 대상 |
+| 분류 | 대표 연구 | 엣지 | 저장-연산 공존 | 분산 추론 | KV 저장 | 스트림 KV 사전 생성 | 버전 인지 KV | 학습 I/O | 공유 DFS | 온라인 재계획 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 저장 간섭/QoS | GIFT, LoomIO, IFLustre | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | △ |
+| 자원 공존 격리 | Heracles, Caladan | ✗ | △ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| prefix KV 재사용 | vLLM, Mooncake, LMCache | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ | △ | ✗ |
+| 사전 계산·위치 독립 KV | Prompt Cache, CacheBlend, TurboRAG | ✗ | ✗ | ✗ | ✓ | △ (고정 문서) | ✗ | ✗ | ✗ | ✗ |
+| 엣지 KV 오프로딩 | KVSwap, Dual-Blade | ✓ | △ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 엣지 분산 추론 | EdgeShard, LOIP | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | △ |
+| 추론·학습 공동 실행 | FlexLLM, ConServe | ✗ | △ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ | △ |
+| 체크포인트 | CheckFreq, Gemini | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | △ | ✗ |
+| CAS | Venti, LBFS, IPFS | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
+| LLM 기반 튜닝 | ION, STELLAR | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
+| **CoStripe** | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-### 2.8 종합 비교와 연구 공백
-
-| 분류 | 대표 연구 | 엣지 | 저장-연산 공존 | 분산 추론 | KV 저장 | 학습 I/O | 공유 DFS | 온라인 재계획 |
-|---|---|---|---|---|---|---|---|---|
-| 저장 간섭/QoS | GIFT, iez, LoomIO, IFLustre | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | △ |
-| 자원 공존 격리 | Heracles, PARTIES, Caladan | ✗ | △ | ✗ | ✗ | ✗ | ✗ | ✓ |
-| 모델 로딩/오프로딩 | ServerlessLLM, FlexGen, prima.cpp | △ | ✗ | △ | ✗ | ✗ | ✗ | ✗ |
-| 데이터센터 KV 저장 | Mooncake, LMCache, CachedAttention, IMPRESS | ✗ | ✗ | ✗ | ✓ | ✗ | △ | ✗ |
-| 엣지 KV 오프로딩 | KVSwap, Dual-Blade | ✓ | △ | ✗ | ✓ | ✗ | ✗ | ✗ |
-| 엣지 분산 추론 | EdgeShard, LOIP, PipeEdge | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ | △ |
-| 추론·학습 공동 실행 | FlexLLM, ConServe | ✗ | △ | ✗ | ✗ | ✓ | ✗ | △ |
-| 엣지 학습/어댑터 | PockEngine, EdgeLoRA | ✓ | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ |
-| 체크포인트 | CheckFreq, Gemini, DataStates-LLM | ✗ | ✗ | ✗ | ✗ | ✓ | △ | ✗ |
-| LLM 기반 튜닝 | ION, STELLAR, GPTuner | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
-| **본 연구** | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-(✓: 주요 대상, △: 일부 고려, ✗: 다루지 않음. 각 연구의 세부 특성은 투고 전 원문으로 재확인한다.)
+(✓: 주요 대상, △: 일부, ✗: 다루지 않음. 투고 전 원문으로 재확인한다.)
 
 **연구 공백**
 
 | ID | 공백 |
 |---|---|
-| G1 | 저장 서버와 LLM 연산 노드가 같은 소형 엣지 클러스터에서, 저장 I/O가 LLM 연산에 주는 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크)은 측정되거나 모델링되지 않았다. |
-| G2 | 엣지 분산 추론의 분할 결정은 저장 데이터의 위치를 고려하지 않는다. DFS 배치 연구는 연산 분할을 고려하지 않는다. 두 결정이 서로 영향을 주는 환경에서 이를 함께 결정하는 방법이 없다. |
-| G3 | 수집, 적응, 서빙의 I/O가 한 클러스터에서 공존할 때, 특히 적응 학습이 서빙 파이프라인에서 함께 실행될 때 체크포인트·복제 I/O의 위치·시점·속도 제어가 다뤄지지 않았다. |
-| G4 | 엣지 현장의 잦은 이벤트와 자연어 운영 정책 아래에서의 온라인 재계획이 다뤄지지 않았다. 기존 LLM 기반 튜닝은 오프라인 단일 애플리케이션을 대상으로 한다. |
+| G1 | 저장 서버와 LLM 연산 노드가 같은 소형 엣지 클러스터에서 저장 I/O가 LLM 연산에 주는 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크)이 측정·모델링되지 않았다. |
+| G2 | 엣지 분산 추론의 분할은 저장 위치를 고려하지 않고, DFS 배치 연구는 연산 분할을 고려하지 않는다. |
+| G3 | 계속 늘어나는 IoT 스트림을 컨텍스트로 쓰는 질의에서 KV를 수집 시점에 만들어 근사 없이 재사용하는 저장 구조가 없다. 어댑터 버전 변화에 따른 저장 KV의 유효성 관리도 다뤄지지 않았다. |
+| G4 | 수집, 적응, 서빙의 I/O가 한 클러스터에서 공존할 때 체크포인트·복제·재생성 I/O의 위치·시점·속도 제어가 다뤄지지 않았다. |
+| G5 | 엣지 현장의 잦은 이벤트와 자연어 운영 정책 아래에서의 온라인 재계획이 다뤄지지 않았다. |
 
 ---
 
@@ -659,889 +622,869 @@ IFLustre는 Lustre에서 여러 애플리케이션이 OSS를 공유할 때 생�
 
 ### 3.1 대상 환경
 
-#### 3.1.1 하드웨어와 역할
+#### 3.1.1 하드웨어와 역할 (설계 기준)
 
 | 노드 | 장비 | Lustre 역할 | 연산 역할 |
 |---|---|---|---|
-| N0 | Jetson Orin Nano 8GB + NVMe | MGS/MDS(MDT), OSS(OST0), client | 제어 모듈(telemetry 집계, 비용 모델, 검증기, 실행기), LLM 플래너(llama.cpp), W1 수집, 학습 샘플 생성. 서빙 stage가 아니며, 장애 시 대체 stage 역할 |
-| N1 | Jetson Orin Nano 8GB + NVMe | OSS(OST1), client | W3 stage 1 + W2 공동 적응 학습 |
-| N2 | Jetson Orin Nano 8GB + NVMe | OSS(OST2), client | W3 stage 2 + W2 공동 적응 학습 |
-| N3 | Jetson Orin Nano 8GB + NVMe | OSS(OST3), client | W3 stage 3 + W2 공동 적응 학습 |
-| N4 | Jetson Orin Nano 8GB + NVMe | OSS(OST4), client | W3 stage 4 + W2 공동 적응 학습 |
+| N0 | Jetson Orin Nano 8GB + NVMe | MGS/MDS(MDT), OSS(OST0), client | 제어 모듈(telemetry, 비용 모델, 검증기, 실행기), 플래너(llama.cpp), W1 수집, 수집 시점 prefill 스케줄러, 압축기. 장애 시 대체 stage |
+| N1 | Jetson Orin Nano 8GB + NVMe | OSS(OST1), client | W3 stage 1 |
+| N2 | Jetson Orin Nano 8GB + NVMe | OSS(OST2), client | W3 stage 2 |
+| N3 | Jetson Orin Nano 8GB + NVMe | OSS(OST3), client | W3 stage 3 |
+| N4 | Jetson Orin Nano 8GB + NVMe | OSS(OST4), client | W3 stage 4 (상위 LG) + W2 적응 학습 |
 
-- **네트워크:** 5대를 같은 1GbE 스위치에 연결한다. 대역폭 민감도 실험에서는 `tc`로 대역폭을 낮추고, 선택적으로 USB 2.5GbE 어댑터로 높인다.
+- **네트워크:** 5대를 같은 1GbE 스위치에 연결한다.
 - **N0를 서빙 stage에서 제외하는 이유:**
   1. MDS를 운영해야 한다.
-  2. 연산 부하가 없는 노드가 하나 있으면, 체크포인트 복제와 가중치 mirror를 받아도 서빙 연산이 느려지지 않는다.
-  3. 장애가 난 stage를 넘겨받을 예비 노드가 된다.
+  2. 연산 부하가 없는 노드가 하나 있으면 복제와 mirror를 받아도 서빙이 느려지지 않는다.
+  3. 장애 시 대체 노드가 된다.
+- **학습이 N4에만 생기는 이유:** LoRA를 상위 LG(LG9–11)에만 적용하기 때문이다(3.8.3절). 그 LG를 맡은 stage(기본 N4)에서만 backward와 학습 상태가 생긴다.
 
-#### 3.1.2 소프트웨어
+#### 3.1.2 현재 실제 구성 (2026-10-21 기준, P0에서 확인)
+
+| 실제 호스트 | 현재 Lustre 역할 | 대응 설계 노드 | 설계와의 차이 |
+|---|---|---|---|
+| jetson0 | MDS, MDT | N0 | OST0 없음, client 마운트 여부 미확인 |
+| jetson1 | OSS, OST | N1 | client 마운트 여부 미확인 |
+| jetson2 | OSS, OST | N2 | 위와 같음 |
+| jetson3 | OSS, OST | N3 | 위와 같음 |
+| jetson | Client | N4 | OST 없음 |
+
+현재 구성은 스토리지와 client가 분리된 구성이다. 하이퍼컨버지드 구성으로 전환하는 방안은 P0의 전환 계획서(`docs/hyperconverged_plan.md`, 예정)에서 결정한다. 현재 분리형 구성은 관찰 실험의 비교 기준으로도 쓸 수 있다.
+
+#### 3.1.3 소프트웨어
 
 | 구성 | 내용 |
 |---|---|
-| OS | JetPack 6.x (L4T, Ubuntu 22.04 기반), 데스크톱 GUI 비활성화(headless) |
-| Lustre | 설치 버전, OSD 백엔드(ldiskfs / ZFS)를 기록한다. PFL, FLR, NRS TBF, jobstats, CPT 지원 여부를 확인한다. |
-| 서빙·학습 런타임 | PyTorch(JetPack용 빌드) + HF transformers + PEFT 기반 자체 파이프라인 런타임 (3.10절) |
-| 플래너·비교 대상 실행 | llama.cpp (CUDA 빌드), JSON schema 기반 제약 디코딩 |
-| 측정 | tegrastats 또는 jtop, `lctl get_param`, `/proc`, PSI(`/proc/pressure/*`), fio, iperf3 |
+| OS | JetPack 6.x (L4T, Ubuntu 22.04), headless |
+| Lustre | 버전, OSD 백엔드 기록. PFL, FLR, NRS TBF, jobstats, CPT 지원 확인 |
+| 서빙·학습 런타임 | PyTorch + HF transformers + PEFT 기반 자체 파이프라인 런타임 (3.10절) |
+| KV 저장소 | CoStripe KV Store (Python, Lustre 위 pack 파일 + 인덱스) |
+| 플래너·비교 대상 | llama.cpp (CUDA), JSON schema 제약 디코딩 |
+| 측정 | tegrastats/jtop, `lctl get_param`, `/proc`, PSI, fio, iperf3 |
 
-#### 3.1.3 노드별 메모리 예산 (추정, O4에서 측정)
+#### 3.1.4 노드별 메모리 예산 (추정, O4에서 측정)
 
 가용 메모리 약 7.4GiB 기준이다.
 
-| 항목 | N1, N4 (stage 1, 4) | N2, N3 (stage 2, 3) | N0 |
-|---|---|---|---|
-| OS (headless) + 서비스 | 0.6GB | 0.6GB | 0.6GB |
-| CUDA + PyTorch 런타임 | 1.2GB | 1.2GB | – |
-| Lustre 서버 + client (캐시 제외) | 0.3GB | 0.3GB | 0.5GB (MGS/MDS 포함) |
-| Lustre 캐시 상한 (설정값) | 0.5GB | 0.5GB | 0.5GB |
-| 모델 가중치 (FP16) | 2.6GB (LG 3개 + 임베딩) | 1.8GB (LG 3개) | – |
-| 공동 적응 학습 (LoRA 상태 + 활성화) | 0.3GB | 0.3GB | – |
-| 플래너 (llama.cpp, Qwen3-4B Q4_K_M + KV) | – | – | 3.0GB |
-| 수집, 샘플 생성, 제어 모듈 | – | – | 0.6GB |
-| 안전 마진 | 0.4GB | 0.4GB | 0.6GB |
-| **KV cache 가용** | **약 1.5GB** | **약 2.3GB** | – |
-| 남는 메모리 | – | – | 약 1.6GB |
+| 항목 | N1 (stage 1) | N2, N3 (stage 2, 3) | N4 (stage 4) | N0 |
+|---|---|---|---|---|
+| OS (headless) + 서비스 | 0.6GB | 0.6GB | 0.6GB | 0.6GB |
+| CUDA + PyTorch 런타임 | 1.2GB | 1.2GB | 1.2GB | – |
+| Lustre 서버 + client (캐시 제외) | 0.3GB | 0.3GB | 0.3GB | 0.5GB (MGS/MDS 포함) |
+| Lustre 캐시 상한 (설정값) | 0.5GB | 0.5GB | 0.5GB | 0.5GB |
+| 모델 가중치 (FP16) | 2.6GB (LG 3개 + 임베딩) | 1.8GB (LG 3개) | 2.6GB (LG 3개 + head) | – |
+| 적응 학습 (LoRA 상태 + 활성화) | – | – | 0.3GB | – |
+| 플래너 (Qwen3-4B Q4_K_M + KV) | – | – | – | 3.0GB |
+| 수집, prefill 스케줄러, 압축기, 제어 모듈 | – | – | – | 0.8GB |
+| 안전 마진 | 0.4GB | 0.4GB | 0.4GB | 0.6GB |
+| **KV 상주 가용** | **약 1.8GB** | **약 2.6GB** | **약 1.5GB** | 남는 메모리 약 1.4GB |
 
-- **세션 수 환산:** KV 가용량은 stage 1/4에서 약 4.4만 토큰(8k 세션 약 5개), stage 2/3에서 약 6.7만 토큰이다. 파이프라인 전체의 동시 수용량은 가장 작은 stage가 결정한다.
-- **캐시 상한이 필요한 이유:** Lustre client 캐시를 기본값(RAM의 1/2, 약 3.7GB)으로 두면 KV 가용 공간이 거의 없어진다. 그래서 캐시 상한 설정은 선택 사항이 아니라 필수 조건이다. 이 효과는 O2와 O4에서 측정한다.
+- **상주 가능한 컨텍스트 수:** 8k 컨텍스트 하나가 stage당 288MiB이다. 따라서 N4 약 5개, N1 약 6개, N2·N3 약 9개를 메모리에 둘 수 있다.
+- **stage별 상주 차이:** stage마다 상주 가능한 수가 다르므로, 어떤 질의는 일부 stage에서만 메모리 적중이 일어난다. 이 경우 TTFT는 저장 계층에서 읽어야 하는 stage가 결정한다(3.8.2절 2f).
+- **캐시 상한:** Lustre client 캐시를 기본값(약 3.7GB)으로 두면 KV 상주 공간이 거의 없어진다. 따라서 상한 설정은 필수 조건이다.
 
 ### 3.2 대상 시나리오와 워크로드
 
 #### 3.2.1 시나리오
 
 공장 엣지 사이트에서 설비 이상 분석 LLM 서비스를 운영한다.
-- 현장 운영자는 생산 라인별로 설비 상태와 이상 원인을 자연어로 질의한다.
-- 서비스는 다음을 입력으로 응답한다.
-  - 해당 라인의 설비 매뉴얼
-  - 최근 센서·음향 이상 탐지 결과
-  - 네트워크·시스템 로그 구간
-- 설비 상태와 공정이 바뀌므로, 사이트는 수집된 데이터로 모델을 주기적으로 적응시킨다. 적응 학습은 요청이 적은 시간대에 서빙 파이프라인에서 함께 실행한다.
-- 데이터는 사이트 밖으로 반출하지 않는다.
+- **설비와 컨텍스트:** 4개 생산 라인에 설비 그룹이 2개씩 있어, 총 8개의 설비 컨텍스트가 있다. 각 설비의 센서·음향·로그 데이터가 계속 수집된다.
+- **질의:** 운영자는 특정 설비의 상태와 이상 원인을 자연어로 질의한다.
+- **적응:** 설비와 공정이 바뀌므로 요청이 적은 시간대에 모델을 적응시킨다.
+- **데이터 반출:** 데이터는 사이트 밖으로 반출하지 않는다.
 
 #### 3.2.2 워크로드 정의
 
-| ID | 이름 | 내용 | 실행 위치 | 사용 데이터·도구 |
-|---|---|---|---|---|
-| W1 | Ingest | IoT 데이터를 Lustre에 계속 저장한다. W2 학습 데이터의 원천이며, 클러스터의 배경 I/O 부하가 된다. | N0 | 원 논문 6종 데이터셋, Loghub, RIoTBench 레코드 스트림, `iotbenchlustre.py` 확장 |
-| W2 | Adapt | N0가 W1 데이터로 지시-응답 학습 샘플을 만든다. N1–N4 파이프라인이 서빙과 함께 LoRA를 학습한다. 각 stage가 자기 LG의 체크포인트를 저장하고 원격 복제한다. 라운드가 끝나면 새 어댑터 버전으로 전환한다. | 샘플: N0 / 학습: N1–N4 | HF PEFT, 자체 파이프라인 런타임 |
-| W3 | Serve | 운영자 질의를 4-stage 파이프라인으로 처리한다. KV cache를 Lustre에 저장하고 재사용한다. | N1–N4 | 자체 파이프라인 런타임 |
+| ID | 이름 | 내용 | 실행 위치 |
+|---|---|---|---|
+| W1 | Ingest | IoT 데이터를 Lustre에 저장하고, 설비별 레코드(간결한 텍스트 형식)로 변환해 설비 컨텍스트에 이어 붙인다. 일정량이 쌓이면 수집 시점 prefill 작업을 파이프라인에 넣는다. | 수집·변환: N0 / prefill: N1–N4 |
+| W2 | Adapt | N0가 학습 샘플을 만들고, 파이프라인이 상위 LG의 LoRA를 학습한다(forward는 전체, backward는 상위 LG만). 라운드가 끝나면 새 어댑터로 전환하고, 영향받는 상위 LG의 KV를 다시 만든다. | 샘플: N0 / 학습: N1–N4 (backward는 N4) |
+| W3 | Serve | 운영자 질의를 처리한다. 설비 컨텍스트의 KV를 주소로 찾아 읽고, 아직 prefill되지 않은 꼬리 부분과 질문만 계산한다. | N1–N4 |
 
-**데이터 흐름:** W1 데이터 → N0 학습 샘플 생성 → N1–N4 공동 적응 학습 → LG별 체크포인트·어댑터(각 stage 노드에서 생성, 원격 복제) → 새 어댑터로 W3 서빙 → 질의·응답 로그가 W1 데이터에 추가
+**데이터 흐름:** IoT 원본 → 설비 레코드 → 설비 컨텍스트 → 수집 시점 KV(content-addressed 객체) → 질의 시 재사용 → 질의·응답 로그는 세션 객체와 W1 데이터로
 
-#### 3.2.3 W3 요청 구성
+#### 3.2.3 설비 컨텍스트와 질의 구성
 
-| 구성 요소 | 길이 (토큰) | 재사용 특성 |
-|---|---|---|
-| 시스템 지시문 | 약 300 | 모든 요청 공통 |
-| 라인별 설비 매뉴얼 | 2k–4k | 같은 라인 요청 공통 (라인 4개 가정) |
-| 최근 센서·로그 구간 | 1k–4k | 같은 라인의 연속 요청끼리 시간 구간이 겹친다 (슬라이딩 윈도우) |
-| 질문 | 30–100 | 재사용 없음 |
-| 출력 | 128–256 | – |
+```
+설비 컨텍스트 (epoch e):
+[시스템 지시문 ~300] [라인 매뉴얼 2k–4k] [설비 헤더 ~50] [압축 요약 (e>0)] [레코드 r1 r2 r3 ...]
 
-- 입력 합계는 기본 4k–8k이고, 민감도 실험에서 16k까지 늘린다. Qwen3-4B 기본 컨텍스트는 32k이다.
-- 멀티턴 세션: 1–5턴, 턴 간격 30초–10분.
-- 도착 패턴: 4.2.3절.
+질의:
+[설비 컨텍스트 (현재까지)] [세션 이전 턴 (있으면)] [질문 30–100]  →  출력 128–256
+```
+
+| 항목 | 값 |
+|---|---|
+| 레코드 형식 | 간결한 한 줄 텍스트. 예: `10:01:20 P2 vib=3.2 T=61 a=0.12` (약 20토큰) |
+| 레코드 주기 | 설비당 10초에 1개 (민감도 변수) → 설비당 시간당 약 7.2k 토큰 |
+| 컨텍스트 한계 | 기본 8k 토큰, 민감도 16k |
+| 압축 | 한계에 도달하면 실행 (3.8.2절 2g) |
+| 세션 | 1–5턴, 턴 간격 30초–10분. 세션 턴은 설비 컨텍스트에서 갈라지는 별도 체인 |
+
+같은 라인의 두 설비 컨텍스트는 `[지시문][매뉴얼]` 부분이 같으므로, 그 KV 객체를 공유한다(content addressing에 의한 중복 제거).
 
 ### 3.3 모델 선정
 
 #### 3.3.1 선정 기준
 
-1. **분할 필요성:** 서빙 모델은 목표 정밀도에서 노드 1대의 메모리에 가중치와 KV가 함께 들어가지 않아야 한다. 들어가면 파이프라인 분할(⑧)이 필요 없다.
-2. **분할 후 여유:** 4대로 나눴을 때 노드당 가중치가 런타임, Lustre, KV, 학습 상태와 함께 7.4GiB 안에 들어가야 한다.
-3. **같은 파이프라인에서 학습 가능:** base 가중치를 공유한 LoRA 학습의 추가 메모리가 노드당 수백 MB 이내여야 한다.
-4. **GQA 구조:** KV head 수가 작아 KV 크기가 현실적이어야 한다.
-5. **실행 환경 지원:** HF transformers와 llama.cpp에서 모두 실행할 수 있어야 한다.
-6. **공개 여부:** 가중치가 공개되어 재현할 수 있어야 한다.
+1. 목표 정밀도에서 노드 1대에 가중치와 KV가 함께 들어가지 않아야 한다.
+2. 4대로 나눴을 때 노드당 메모리가 7.4GiB 안에 들어가야 한다.
+3. base 가중치를 공유한 LoRA 학습의 추가 메모리가 수백 MB 이내여야 한다.
+4. GQA 구조여야 한다.
+5. HF transformers와 llama.cpp에서 모두 실행할 수 있어야 한다.
+6. 가중치가 공개되어 있어야 한다.
 
 #### 3.3.2 기본 구성
 
-| 역할 | 모델 | 정밀도 | 크기 | 실행 노드 | 선정 이유 |
-|---|---|---|---|---|---|
-| 서빙 (W3) | Qwen3-4B | FP16 | 약 8.0GB | N1–N4 (stage당 LG 3개) | 노드 1대에 들어가지 않음. 4대로 나누면 노드당 1.8–2.6GB. GQA(KV head 8개). 임베딩 공유 |
-| 적응 학습 (W2) | Qwen3-4B + LoRA | FP16 base 공유, LoRA FP32 | 노드당 추가 약 0.3GB | N1–N4 | 서빙과 같은 base 가중치를 메모리에서 공유 |
-| 플래너 (⑦) | Qwen3-4B | Q4_K_M (GGUF) | 약 2.5GB | N0 (llama.cpp) | N0 메모리 예산 안에서 실행 가능. JSON 출력 성능 |
-| 플래너 비교 | Qwen3-1.7B / Qwen3-0.6B | Q8_0 / Q8_0 | 약 1.8GB / 0.6GB | N0 | 플래너 모델 크기 영향 |
-| 비교 대상 B7 | Qwen3-4B | Q4_K_M | 약 2.5GB | N1–N4 각각 (복제 서빙) | 1대에 양자화 모델을 올리는 대안과 비교 |
-| 서빙 규모 민감도 (선택) | Qwen3-8B | Q8_0 (llama.cpp RPC) | 약 8.7GB | N1–N4 | 관찰 실험 O1–O3에서 모델 크기 영향 확인 |
-| 작은 모델 민감도 | Qwen3-1.7B | FP16 | 약 3.4GB | N1–N2 (2-stage) 또는 1대 | 분할 수에 따른 결과 비교 |
+| 역할 | 모델 | 정밀도 | 크기 | 실행 노드 |
+|---|---|---|---|---|
+| 서빙 (W3), 수집 시점 prefill (W1) | Qwen3-4B | FP16 | 약 8.0GB | N1–N4 (stage당 LG 3개) |
+| 적응 학습 (W2) | Qwen3-4B + LoRA (LG9–11) | FP16 base 공유, LoRA FP32 | N4 추가 약 0.3GB | N1–N4 (backward는 N4) |
+| 플래너 (⑦) | Qwen3-4B | Q4_K_M (GGUF) | 약 2.5GB | N0 (llama.cpp) |
+| 플래너 비교 | Qwen3-1.7B / Qwen3-0.6B | Q8_0 | 약 1.8GB / 0.6GB | N0 |
+| 비교 대상 B7 | Qwen3-4B | Q4_K_M | 약 2.5GB | N1–N4 각각 (복제 서빙) |
+| 서빙 규모 민감도 (선택) | Qwen3-8B | Q8_0 (llama.cpp RPC) | 약 8.7GB | N1–N4 (O1–O3만) |
+| 작은 모델 민감도 | Qwen3-1.7B | FP16 | 약 3.4GB | 2-stage 또는 1대 |
 
-**서빙 모델 분할 (기본)**
-- Qwen3-4B는 36 layer이다. g=3으로 묶어 LG 12개(LG0–LG11)를 만든다. LG당 가중치는 약 0.6GB이다.
-- 임베딩(약 0.78GB)은 입력과 출력 head가 공유한다. 그래서 stage 1(입력 임베딩)과 stage 4(출력 head) 두 곳에서 필요하다. 소비 노드가 둘인 객체이므로 FLR mirror로 두 노드의 OST에 둔다.
-- 초기 분할: `{N1: LG0–2 + 임베딩, N2: LG3–5, N3: LG6–8, N4: LG9–11 + 임베딩(head) + 최종 norm}`
-- 마지막 stage는 출력 head 연산(토큰당 2560 × 151,936 행렬곱)을 추가로 수행한다. 그래서 연산량 균형을 위해 LG를 더 적게 받는 분할이 선택될 수 있다. 이는 비용 모델이 결정한다(3.8.1절).
+**서빙 모델 분할**
+- 36 layer를 g=3으로 묶어 LG 12개(LG0–LG11, LG당 약 0.6GB)를 만든다.
+- 임베딩(약 0.78GB)은 입력과 출력 head가 공유한다. stage 1과 stage 4가 모두 필요하므로 FLR mirror로 두 노드에 둔다.
+- 초기 분할: `{N1: LG0–2 + 임베딩, N2: LG3–5, N3: LG6–8, N4: LG9–11 + head}`
 
-**공동 적응 학습 설정 (기본)**
+**적응 학습 설정**
 
 | 항목 | 값 |
 |---|---|
+| LoRA 적용 범위 | LG9–11 (layer 27–35). 비교: 전체 LG |
 | LoRA rank / alpha / dropout | 16 / 32 / 0.05 |
 | 대상 projection | q, k, v, o |
 | 시퀀스 길이 | 512–1024 |
 | micro-batch / gradient accumulation | 1 / 8 |
-| gradient checkpointing | layer 단위 |
-| 라운드당 step | 50–100 (학습 처리량 측정 후 조정) |
+| 라운드당 step | 50–100 (측정 후 조정) |
 | 체크포인트 간격 | 25 step |
-| 대용량 체크포인트 민감도 | rank 64, 전체 linear projection (stage당 약 0.4GB) |
+| 대용량 체크포인트 민감도 | rank 64, 전체 linear (N4에서 약 0.4GB) |
 
 #### 3.3.3 선택하지 않은 대안과 이유
 
-| 대안 | 선택하지 않은 이유 |
+| 대안 | 이유 |
 |---|---|
-| Qwen3-4B Q8_0을 노드 1대에 올림 | 가중치 약 4.3GB를 올리면 KV에 남는 메모리가 1GB 미만으로, 8k 세션 1개도 담지 못한다. |
-| Qwen3-4B Q4_K_M을 노드마다 복제 | KV 여유는 약 2–3GB이지만 4-bit 양자화로 품질이 떨어지고, 노드 간 KV 공유가 없다. 노드 1대에서는 학습할 수 없다. 비교 대상(B7)으로만 사용한다. |
-| Qwen3-8B FP16 분할 | 4대로 나누면 stage 1/4가 약 5.3GB(임베딩·head 비공유 1.24GB씩 포함)로, PyTorch 런타임과 함께 7.4GiB를 넘는다. |
-| N0에서 단독 QLoRA 학습 | 4B 모델 4-bit base 학습에 bitsandbytes가 필요하지만, Jetson ARM64에서 불안정하다는 보고가 있다. MDS와 플래너가 있는 N0의 메모리 여유도 부족하다. |
-| 학습 시간대에 서빙 중단 | 적응 결과 반영은 쉬워지지만, 체크포인트 I/O와 서빙 I/O가 공존하는 현장 조건을 반영하지 못한다. 위험 대응 수단(7장)으로만 둔다. |
+| Qwen3-4B Q8_0을 노드 1대에 | KV 여유가 1GB 미만이다. |
+| Qwen3-4B Q4_K_M 노드별 복제 | 품질 저하, KV 공유 없음, 학습 불가. 비교 대상(B7)으로만 사용 |
+| Qwen3-8B FP16 분할 | stage 1/4가 약 5.3GB로 메모리 초과 |
+| N0 단독 QLoRA | Jetson ARM64 bitsandbytes 불안정, N0 메모리 부족 |
+| 전체 layer LoRA | 어댑터가 바뀔 때마다 모든 LG의 KV가 무효가 된다. 비교 구성으로만 사용 |
+| 위치 독립 근사 재사용 (CacheBlend 방식) | 품질 영향이 있다. 이어 쓰기 컨텍스트로 근사 없이 재사용할 수 있으므로 채택하지 않는다. 선택 비교 대상으로만 둔다. |
 
 ### 3.4 데이터 객체와 I/O 특성
 
-기본 구성(Qwen3-4B FP16, g=3) 기준 계산값이다. 계산식은 부록 A에 있다.
+기본 구성(Qwen3-4B FP16, g=3, chunk 256토큰, 컨텍스트 한계 8k) 기준이다. 계산식은 부록 A, 경로 규격은 부록 C에 있다.
 
-| 객체 | 파일 경로 | 단위 크기 | 전체 크기 | 생성 | 소비 | 접근 패턴 | 요구사항 |
-|---|---|---|---|---|---|---|---|
-| 가중치 | `weights/lg{i}.safetensors` | LG당 약 0.6GB | 약 7.3GB | 사전 배치 | 해당 LG 담당 stage | 시작·재분할·복구 시 순차 읽기 | 로드 시간, 장애 시 가용성 |
-| 임베딩 | `weights/embed.safetensors` | 약 0.78GB | – | 사전 배치 | stage 1, stage 4 | 로드 시 읽기 | 소비 노드 2곳 |
-| KV cache | `kv/{prefix_hash}/lg{i}.kv` | LG당 토큰당 12KiB, 256토큰 chunk 3MiB | 8k 세션: LG 파일당 96MiB, stage당 288MiB, 전체 1.125GiB | 해당 LG 담당 stage | 같은 LG 담당 stage | chunk append 쓰기, 재사용 시 순차 읽기 | TTFT |
-| 체크포인트 | `ckpt/r{round}/s{step}/lg{i}.pt` | LG당 약 12MB (rank 16) / 약 132MB (rank 64, 전체 linear) | stage당 약 35MB / 약 0.4GB | 해당 LG 담당 stage | 같은 stage (학습 재개 시), 장애 시 대체 노드 | 주기적 버스트 쓰기 + 원격 복제 | 학습 정지 최소, 서빙 영향 최소, 장애 내구성 |
-| 어댑터 | `adapters/v{n}/lg{i}.safetensors` | LG당 약 2MB (FP16, rank 16) | 약 24MB | 해당 LG 담당 stage | 같은 stage | 라운드 종료 시 확정, 원격 복제 | 버전 일관성, freshness |
-| IoT 데이터 | `iot/{dataset}/...` | 수백 B–4GB | 설정에 따름 | N0 수집 | N0 샘플 생성 | 연속 쓰기, 읽기 | 처리량 |
-| 학습 샘플 | `train/r{round}/*.jsonl` | 수 MB | 라운드당 수십 MB | N0 | N1(입력 토큰), N4(정답 토큰) | 순차 쓰기·읽기 | – |
+| 객체 | 식별 | 단위 크기 | 생성 | 소비 | 접근 패턴 |
+|---|---|---|---|---|---|
+| 가중치 | 모델 버전 + LG | LG당 약 0.6GB | 사전 배치 | 해당 LG stage | 시작·재분할·복구 시 읽기 |
+| 임베딩 | 모델 버전 | 약 0.78GB | 사전 배치 | stage 1, 4 | 로드 시 읽기 |
+| KV chunk (공유 prefix) | 내용 주소 | LG당 3MiB/chunk | 첫 컨텍스트의 수집 시점 prefill | 같은 라인의 모든 컨텍스트 | 질의·prefill 시 읽기 |
+| KV chunk (설비 로그) | 내용 주소 | LG당 3MiB/chunk | 수집 시점 prefill | 해당 설비 질의 | append 후 봉인, 읽기 |
+| KV pack | (컨텍스트, LG, epoch, 순번) | 32 chunk, LG당 96MiB | KV Store | – | 봉인 후 불변, 복제 |
+| 경계 activation | 내용 주소 (LG9 입력) | chunk당 1.25MiB | LG9 앞 stage | LG9 stage (재생성 시) | 쓰기 후 재생성 시 읽기 |
+| 세션 KV | 내용 주소 (컨텍스트 체인에서 분기) | 턴당 수 MiB | stage | 같은 세션 | 단기 보존 |
+| 체크포인트 | (라운드, step, LG) | LG당 약 12MB (rank 16) | N4 | N4, 장애 시 대체 노드 | 버스트 쓰기 + 원격 복제 |
+| 어댑터 | (버전, LG) | LG당 약 2MB | N4 | N4 | 라운드 종료 시 확정, 복제 |
+| IoT 원본, 레코드 로그 | 경로 | 수백 B–4GB | N0 | N0 | 연속 쓰기 |
 
-**참고 수치**
-- stage 간 activation: 토큰당 5KiB, 8k 토큰 prefill 시 stage 경계당 40MiB
-- 1GbE로 전달 시: 8k 세션 stage KV(288MiB) 약 2.6초, prefill activation(40MiB) 약 0.35초
+**규모 (8개 설비 컨텍스트, 8k 한계)**
+- 컨텍스트 KV: 컨텍스트당 1.125GiB, stage당 288MiB
+- 8개 합계: stage당 약 2.25GiB, 클러스터 전체 약 9GiB
+- 16k 한계에서는 두 배
+- 경계 activation: 컨텍스트당 40MiB
 
 ### 3.5 문제 정의
 
 #### 3.5.1 문제 서술
 
-하이퍼컨버지드 엣지 DFS에서 W1–W3가 동시에 실행될 때 다음 세 가지를 결정하는 문제이다.
+하이퍼컨버지드 엣지 DFS에서 W1–W3가 동시에 실행될 때 다음을 결정하는 문제이다.
 
 | 기호 | 결정 대상 |
 |---|---|
-| P | LG를 서빙 노드에 배정하는 파이프라인 분할. 장애 시 대체 분할 포함 |
-| M | 각 데이터 객체(가중치, 임베딩, KV, 체크포인트, 어댑터, IoT 데이터)의 저장 OST, stripe count, stripe size, mirror 위치 |
-| S | 백그라운드 I/O(체크포인트, 원격 복제, 재배치, 수집)의 실행 시점과 속도 상한, 적응 학습의 실행 시간대와 연산 비율 |
+| P | LG를 서빙 노드에 배정하는 파이프라인 분할 (장애 시 대체 분할 포함) |
+| M | 각 객체(가중치, KV pack, 경계 activation, 체크포인트, 어댑터)의 OST, stripe, mirror 위치 |
+| R | stage별 메모리 상주 컨텍스트 집합 |
+| S | 백그라운드 작업의 시점과 속도: 수집 시점 prefill 배치 간격, 압축 시점, KV 재생성 일정, 체크포인트 복제, 재배치, 적응 시간대와 연산 비율 |
 
-목표는 서빙 SLO(TTFT p99, TPOT p99)를 만족하면서 서빙 처리량을 최대화하고, 적응 라운드의 완료 시간과 장애 시 복구 시간을 정책 상한 안으로 유지하는 것이다.
+**목표**
+- 서빙 SLO(TTFT p99, TPOT p99)를 만족한다.
+- 서빙 처리량을 최대화한다.
+- 데이터 최신성(질의 시점에 아직 prefill되지 않은 레코드 양), 적응 라운드 완료 시간, 장애 복구 시간을 정책 상한 안에 둔다.
 
 #### 3.5.2 정식화
 
-**입력**
-
-| 분류 | 항목 |
-|---|---|
-| 노드 k | 연산 성능 프로파일, 가용 메모리 MemCap_k(약 7.4GiB), OST 대역폭과 용량 OstCap_k, NIC 대역폭(1GbE), 전력 모드 |
-| 모델 | LG별 연산 시간 c_i(prefill/decode/학습 구분), LG별 가중치 크기 w_i, LG별 토큰당 KV 크기 v_i, 임베딩 크기 |
-| 워크로드 | 요청 도착률 λ(t), prefix 재사용 분포, 컨텍스트 길이 분포, 적응 라운드 주기·샘플 수, 체크포인트 크기·간격, 수집률 |
-| 정책 | TTFT SLO, TPOT SLO, 우선순위, 시간대별 제약, 체크포인트 간격 상한 CkptMax, 라운드 완료 상한 RoundMax, 복구 시간 상한 RecoverMax |
-
-**목적과 제약**
-
 ```
-maximize    Throughput(P, M, S) = 1 / max_k T_k(P, M, S)
+maximize    Throughput(P, M, R, S) = 1 / max_k T_k
 
-subject to  TTFT_p99(P, M, S)   <= SLO_TTFT
-            TPOT_p99(P, M, S)   <= SLO_TPOT
-            mem_k(P, M, S)      <= MemCap_k − margin     for all nodes k
-            used_j(M)           <= OstCap_j              for all OSTs j
+subject to  TTFT_p99            <= SLO_TTFT
+            TPOT_p99            <= SLO_TPOT
+            mem_k(P, R, S)      <= MemCap_k − margin        for all k
+            used_j(M)           <= OstCap_j                 for all OSTs j
+            freshness_lag(S)    <= LagMax                   (미처리 레코드 시간)
             ckpt_interval(S)    <= CkptMax
-            round_time(S)       <= RoundMax              (정책에 따라 선택)
-            recover_time(P', M) <= RecoverMax            for all single-node failures
-            P는 연속 분할 (각 stage는 연속된 LG 구간)
+            round_time(S)       <= RoundMax                 (선택)
+            recover_time(P', M) <= RecoverMax               for all single-node failures
+            P는 연속 분할
 ```
 
-T_k와 mem_k의 정의는 3.9.3절의 비용 모델이다.
+T_k와 mem_k의 정의는 3.9.3절에 있다.
 
 #### 3.5.3 문제가 성립하는 이유
 
-다음 세 조건이 동시에 성립하기 때문에 이 문제가 생긴다. 셋 중 하나라도 없으면 문제는 기존 연구로 해결된다.
+다음 네 조건이 동시에 성립하기 때문에 문제가 생긴다.
 1. 모델이 노드 1대에 들어가지 않는다 → 분할이 필요하다.
-2. 생성 노드와 소비 노드가 다르거나, 장애 대비 복제가 필요한 데이터가 있다 → 공유 저장이 필요하다.
+2. 설비 컨텍스트의 KV가 메모리보다 크고, 여러 질의가 공유하며, 분할 변경·장애 후에도 유지되어야 한다 → 공유 저장이 필요하다.
 3. 엣지에는 별도 스토리지 계층이 없다 → 저장 서버와 연산 노드가 같다.
+4. 적응 학습이 모델 버전을 바꾼다 → 저장된 KV의 유효성 관리가 필요하다.
 
-Orin Nano 8GB 환경에서는 여기에 두 조건이 더해져 문제가 커진다.
-- 메모리가 작아서, 저장 계층의 캐시가 연산 메모리를 직접 줄인다.
-- 네트워크가 1GbE여서, 데이터 위치에 따른 접근 시간 차이가 10배 이상이다.
+Orin Nano 8GB에서는 두 조건이 문제를 키운다.
+- 메모리가 작아서 캐시가 연산 메모리를 직접 줄인다.
+- 1GbE라서 위치에 따른 접근 시간 차이가 10배 이상이다.
 
 ### 3.6 문제를 어렵게 만드는 요인
 
-| ID | 요인 | 설명 | 관련 배경 |
-|---|---|---|---|
-| D1 | 저장-연산 결합 | OST가 연산 노드에 있다. 어떤 OST로 I/O를 보내면 그 노드의 OSS 처리가 같은 노드의 메모리, CPU, 메모리 대역폭을 사용해 LLM 연산이 느려질 수 있다. 데이터 배치를 정하는 것이 곧 노드별 연산 부하를 정하는 것이다. | 2.2, 2.5.4 |
-| D2 | 메모리 용량 경쟁 | 7.4GiB 안에서 가중치, KV, 런타임, Lustre 캐시, 학습 상태가 경쟁한다. 캐시가 늘면 KV 수용량이 줄어 저장 계층 I/O(KV 오프로드·로드)가 늘어나고, 그 I/O가 다시 캐시를 늘린다. | 2.2, 3.1.3 |
-| D3 | 파이프라인 병목 | 처리량은 가장 느린 stage가 결정한다. 한 노드에 I/O가 몰리면 다른 노드에 여유가 있어도 전체 성능이 떨어진다. 원 IFLustre 관찰("가장 느린 OSS가 성능을 결정")의 연산 버전이다. | 2.4.3, 2.6 |
-| D4 | 1GbE 네트워크 | 원격 접근이 로컬 NVMe보다 10배 이상 느리다. activation 전달, 원격 KV, 체크포인트 복제가 같은 NIC를 나눠 쓴다. 원격 stripe가 가장 느린 stripe가 되므로 striping도 이득이 없다. | 2.2, 2.4.3 |
-| D5 | P와 M의 상호 의존 | P가 바뀌면 각 객체의 소비 노드가 바뀌어 최적 M이 바뀐다. 반대로 M이 정해져 있으면 P를 바꿀 때 이동해야 할 데이터량과 원격 읽기량이 달라져서 최적 P가 바뀐다. | 2.7.6 |
-| D6 | I/O 클래스 간 요구 충돌 | KV는 지연에 민감하고 서빙 중 계속 발생한다. 체크포인트는 버스트로 발생하며, 장애 내구성을 위해 원격 복제가 필요하다. 두 I/O가 같은 OST, NIC, 메모리를 쓰면 KV 읽기가 지연된다. | 2.4.5 |
-| D7 | 시간에 따른 변화 | 적응 라운드마다 새 어댑터 버전이 생긴다. 장애, 부하 변화, 정책 변경이 발생한다. 새 객체에는 과거 실행 이력이 없어서 로그 기반 결정을 쓸 수 없다. | 2.6.3 |
+| ID | 요인 | 설명 |
+|---|---|---|
+| D1 | 저장-연산 결합 | OST가 연산 노드에 있어서, I/O를 어디로 보내는지가 곧 노드별 연산 부하를 정한다. |
+| D2 | 메모리 용량 경쟁 | 가중치, 상주 KV, 런타임, 캐시, 학습 상태가 7.4GiB 안에서 경쟁한다. 캐시가 늘면 상주 KV가 줄고 저장 계층 I/O가 늘어난다. |
+| D3 | 파이프라인 병목 | 가장 느린 stage가 처리량과 TTFT를 결정한다. |
+| D4 | 1GbE 네트워크 | 원격 접근이 10배 이상 느리고, activation·원격 KV·복제가 같은 NIC를 쓴다. |
+| D5 | P, M, R의 상호 의존 | P가 바뀌면 객체의 소비 노드가 바뀌고, M과 R의 최적값도 바뀐다. |
+| D6 | I/O 클래스 간 충돌 | 질의 시점 KV 읽기(지연 민감)와 수집 시점 prefill, 체크포인트 복제, 재생성, 압축(버스트)이 같은 OST·NIC·메모리를 쓴다. |
+| D7 | 스트림 KV의 증가와 수명 | 설비 로그 KV는 계속 늘어나고, 압축으로 epoch가 바뀌며, 어댑터 버전으로 상위 LG KV가 무효가 된다. |
+| D8 | 수집 시점 prefill의 읽기 증폭 | 새 chunk를 계산하려면 그 컨텍스트의 이전 KV 전체가 메모리에 있어야 한다. 상주하지 않은 컨텍스트를 prefill하려면 매번 컨텍스트 KV를 읽어야 한다. |
+| D9 | 시간에 따른 변화 | 적응 라운드, 장애, 부하 변화, 정책 변경이 일어나며, 새 객체에는 이력이 없다. |
 
 ### 3.7 연구 질문
 
-| ID | 질문 | 관련 공백 | 답하는 실험 |
+| ID | 질문 | 관련 공백 | 실험 |
 |---|---|---|---|
-| RQ1 | 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 노드에서 저장 I/O는 같은 노드의 LLM 연산을 얼마나 지연시키는가? 메모리 용량, CPU, 메모리 대역폭, 네트워크 중 주된 경로는 무엇인가? | G1 | O1, O2, O3, O4 |
-| RQ2 | 파이프라인 분할(P)과 데이터 배치(M)를 함께 결정하면, 각각 독립적으로 결정할 때보다 서빙 성능과 복구 시간이 얼마나 개선되는가? | G2 | O4, O6, S2, S5 |
-| RQ3 | 서빙 파이프라인에서 함께 실행되는 적응 학습의 체크포인트·복제 I/O의 위치·시점·속도를 어떻게 제어해야 서빙 SLO를 유지하면서 라운드를 제시간에 끝낼 수 있는가? | G3 | O5, S3, S4 |
-| RQ4 | 이벤트 발생 시 LLM 플래너와 검증기로 재계획하면, 규칙 기반·탐색 기반 방식과 비교해 결과 품질, 정책 준수, 결정 비용이 어떻게 다른가? | G4 | S1, S6 |
+| RQ1 | 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 노드에서 저장 I/O는 같은 노드의 LLM 연산을 얼마나, 어떤 경로로 지연시키는가? | G1 | O1, O2, O3, O4 |
+| RQ2 | 파이프라인 분할(P)과 데이터 배치(M, R)를 함께 결정하면 각각 결정할 때보다 서빙 성능과 복구 시간이 얼마나 개선되는가? | G2 | O4, O6, S2, S5 |
+| RQ3 | 설비 단위 이어 쓰기 컨텍스트와 수집 시점 prefill, content-addressed KV 저장은 질의 시점 prefix 재사용 대비 TTFT를 얼마나 줄이며, 그 대가(저장 용량, 수집 시점 I/O, 압축·재생성 비용)는 얼마인가? | G3 | O7, S2, S7 |
+| RQ4 | 적응 학습과 KV 재생성의 I/O를 어떻게 제어해야 서빙 SLO를 유지하면서 라운드를 제시간에 끝낼 수 있는가? | G4 | O5, S3, S4, S7 |
+| RQ5 | 이벤트 발생 시 LLM 플래너와 검증기로 재계획하면 규칙·탐색 기반 대비 결과 품질, 정책 준수, 결정 비용이 어떻게 다른가? | G5 | S1, S6 |
 
 ### 3.8 해결 대상
 
-해결 대상은 다섯 가지이다. 번호는 기존 논의의 번호(②③⑤⑦⑧)를 유지한다. 서술은 의존 관계 순서(⑧ → ② → ⑤ → ③ → ⑦)를 따른다. 각 항목은 같은 형식으로 작성한다: 정의 → 해결해야 하는 이유 → 세부 문제 → 해결 방법 → 검증 방법 → 관련 연구와의 차이 → 원 IFLustre와의 관계.
+해결 대상은 다섯 가지이며, 번호는 기존 논의의 번호(②③⑤⑦⑧)를 유지한다. 서술은 의존 관계 순서(⑧ → ② → ⑤ → ③ → ⑦)를 따른다.
 
 | 번호 | 해결 대상 | 대응 요인 | 대응 RQ |
 |---|---|---|---|
 | ⑧ | 분산 추론의 분할과 가중치 배치 | D1, D3, D4, D5 | RQ2 |
-| ② | KV cache 저장과 재사용 | D1, D2, D4, D6 | RQ2, RQ3 |
-| ⑤ | 공동 적응 학습의 체크포인트와 어댑터 | D2, D4, D6, D7 | RQ3 |
+| ② | 의미 기반 content-addressed KV 저장소 | D2, D4, D6, D7, D8 | RQ2, RQ3 |
+| ⑤ | 적응 학습과 KV 유효성 | D6, D7, D9 | RQ4 |
 | ③ | 저장-연산 간섭 측정과 완화 | D1, D2, D3, D4 | RQ1 |
-| ⑦ | 이벤트 기반 재계획 (LLM 플래너) | D5, D7 | RQ4 |
+| ⑦ | 이벤트 기반 재계획 (LLM 플래너) | D5, D9 | RQ5 |
 
 #### 3.8.1 ⑧ 분산 추론의 분할과 가중치 배치
 
 **정의**
 
-Qwen3-4B의 LG 12개를 N1–N4에 연속 구간으로 배정해 파이프라인 추론을 수행한다. 각 stage는 자기 LG의 가중치를 Lustre에서 읽어 메모리에 올린다. stage 간에는 activation을 TCP로 전달한다. 노드 장애에 대비해 대체 분할과 복제 위치를 미리 정한다.
+LG 12개를 N1–N4에 연속 구간으로 배정해 파이프라인 추론을 수행한다. 각 stage는 자기 LG 가중치를 Lustre에서 읽는다. 장애에 대비해 대체 분할과 복제 위치를 미리 정한다.
 
 **해결해야 하는 이유**
-
-1. **모델이 노드 1대에 들어가지 않는다.** Qwen3-4B FP16(약 8.0GB)은 Orin Nano의 가용 메모리(약 7.4GiB)보다 크다. 양자화로 1대에 올리면 KV 공간이 부족하거나 품질이 떨어진다(3.3.3절).
-2. **가중치 로드 시간이 곧 서비스 중단 시간이다.** 로드는 시작, 재분할, 장애 복구 때 발생한다.
-   - 로컬 NVMe에서 stage 하나(1.8–2.6GB)를 읽으면 수 초 이내이다.
-   - 1GbE로 원격에서 읽으면 약 16–22초이다.
-3. **기본 레이아웃은 모든 노드에 부하를 준다.** Lustre 기본 레이아웃에서는 LG 파일들이 OST 5개에 흩어진다. 한 stage의 로드도 대부분 원격 읽기(1GbE 제한)가 되고, 다른 stage 노드의 OSS에도 부하가 생긴다(D1, D3, D4).
-4. **striping이 이득이 되지 않는다.** stripe count를 늘려 로컬 OST와 원격 OST에 나누어 두면, 파일 읽기 시간은 가장 느린 원격 stripe가 결정한다. 원 IFLustre에서는 stripe count 증가가 대역폭을 늘렸지만, 1GbE 엣지에서는 반대 결과가 예상된다(O1에서 확인).
-5. **장애 시 데이터도 함께 사라진다.** 노드 장애가 나면 그 노드의 연산과 OST가 함께 사라진다. 그 OST에만 있던 LG 파일은 읽을 수 없게 된다.
-6. **임베딩은 소비 노드가 둘이다.** 임베딩은 stage 1과 stage 4가 모두 필요하다.
-7. **분할과 배치는 따로 정할 수 없다.** 연산량만 보고 분할하면, 어떤 노드는 자기 LG 외에 다른 객체의 I/O까지 받아서 병목이 될 수 있다(D5).
+1. **모델이 노드 1대에 들어가지 않는다.** FP16 약 8.0GB는 가용 7.4GiB보다 크다.
+2. **로드 시간이 곧 서비스 중단 시간이다.** stage 가중치(1.8–2.6GB)를 로컬 NVMe에서 읽으면 수 초 이내이지만, 1GbE 원격으로 읽으면 약 16–22초이다.
+3. **기본 레이아웃은 모든 노드에 부하를 준다.** LG 파일이 OST 전체에 흩어져 대부분 원격 읽기가 되고, 다른 stage 노드의 OSS에도 부하가 생긴다.
+4. **striping이 이득이 되지 않는다.** 1GbE에서는 원격 stripe가 가장 느린 stripe가 되어 파일 읽기 전체를 늦춘다.
+5. **장애 시 데이터도 함께 사라진다.** 노드 장애가 나면 연산과 OST가 함께 사라진다.
+6. **임베딩은 소비 노드가 둘이다.**
+7. **분할과 배치는 따로 정할 수 없다(D5).**
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 8a | 분할 P 선택: LG별 연산 시간, 출력 head 연산, 노드별 I/O 부하, 메모리를 함께 고려 |
+| 8a | 분할 P 선택: LG별 연산 시간, 출력 head 연산, 학습(N4), 노드별 I/O 부하, 메모리를 함께 고려 |
 | 8b | 가중치 배치: LG 파일과 임베딩의 OST, stripe count |
 | 8c | 장애 대비: 대체 분할과 mirror 위치 |
-| 8d | 재분할: 이동량 최소화, 이동 중 서빙 영향 최소화 |
+| 8d | 재분할: 이동량과 서빙 영향 최소화 |
 
 **해결 방법**
+1. **LG 단위 파일.** `weights/<model>/lg{i}.safetensors`(약 0.6GB)로 저장한다. 재분할할 때 파일 단위로 이동한다.
+2. **기본 배치.** LG 파일은 소비 노드 OST에 둔다(`lfs setstripe -c 1 -i <OST>`). 임베딩은 stage 1 OST에 두고 stage 4 OST에 mirror를 둔다.
+3. **stripe count는 1로 고정한다.** O1의 striping 측정 결과를 근거로 쓴다.
+4. **OST0 전체 mirror.** 모든 LG 가중치와 임베딩의 FLR mirror를 OST0에 둔다(약 8GB, 읽기 전용이므로 동기화 비용 없음).
+5. **대체 분할 두 가지.**
 
-1. **LG 단위 파일 (8b, 8d)**
-   - 가중치를 LG 단위 파일로 저장한다(`weights/lg{i}.safetensors`, 약 0.6GB).
-   - 재분할할 때 LG 파일 단위로 이동한다.
-   - 단일 파일에 PFL 컴포넌트로 구간별 OST를 지정하는 방식은 대안으로만 둔다.
-2. **기본 배치 (8b)**
-   - LG 파일을 소비 노드의 OST에 둔다(`lfs setstripe -c 1 -i <소비 노드 OST>`).
-   - 로드할 때 NIC를 쓰지 않는다.
-   - 임베딩 파일은 stage 1 노드 OST에 두고, FLR mirror를 stage 4 노드 OST에 둔다.
-3. **stripe count (8b)**
-   - 1로 고정한다.
-   - O1에서 로컬 + 원격 striping의 효과를 측정해 이 선택의 근거로 쓴다.
-4. **OST0 전체 mirror (8c)**
-   - N0는 서빙 stage가 아니므로, 모든 LG 가중치와 임베딩의 FLR mirror를 OST0에 둔다(약 8GB).
-   - 가중치는 읽기 전용이므로 mirror 동기화 비용이 없다.
-5. **대체 분할 두 가지 (8c)**
-   - 노드 N_k 장애 시 쓸 대체 분할을 미리 계산한다.
+   | 대체 분할 | 내용 | 장점 | 단점 |
+   |---|---|---|---|
+   | P'_k (N0 대체) | N0가 N_k의 LG 구간을 넘겨받고 OST0 mirror에서 로컬로 읽는다. | 가장 빠른 복구 | 플래너를 내려야 함 |
+   | P''_k (3-stage 재분할) | 남은 3개 노드에 LG를 다시 나눈다. | 플래너 유지 | 노드당 LG 4개, KV 여유 감소, 이동량 증가 |
 
-     | 대체 분할 | 내용 | 장점 | 단점 |
-     |---|---|---|---|
-     | P'_k (N0 대체) | N0가 N_k의 LG 구간을 그대로 넘겨받는다. N0는 OST0 mirror에서 로컬로 읽는다. | 나머지 stage는 바뀌지 않아 복구가 가장 빠르다. | N0의 플래너를 내려야 한다. |
-     | P''_k (3-stage 재분할) | 남은 3개 노드에 LG 12개를 다시 나눈다. | 플래너를 유지한다. | 노드당 LG 4개(2.4GB + 임베딩)로 KV 여유가 줄고, 이동량이 많다. |
-
-   - 어느 대체 분할을 쓸지는 정책과 현재 부하로 정한다. 기본값은 P'_k이다.
-6. **분할 선택 (8a)**
-   - LG 12개를 4 stage로 나누는 연속 분할은 C(11,3)=165개이다.
-   - 후보마다 비용 모델로 max_k T_k와 메모리 제약을 계산해 최적 분할을 고른다.
-   - 노드 수와 LG 수가 커지면 동적 계획법으로 푼다.
-7. **재분할 (8d)**
-   - 새 P에서 소비 노드가 바뀐 LG 파일만 이동한다.
-   - 새 담당 노드가 먼저 OST0 mirror에서 읽어 서비스를 재개한다. 이후 저부하 구간에 자기 OST로 `lfs migrate` 또는 `lfs mirror extend`를 수행한다.
-   - 이동 I/O는 NRS TBF로 속도 상한을 둔다.
+   기본값은 P'_k이다.
+6. **분할 선택.** C(11,3)=165개 후보를 비용 모델로 전수 평가한다. 규모가 커지면 동적 계획법을 쓴다.
+7. **재분할.** 바뀐 LG 파일만 이동한다. 새 담당 노드는 먼저 OST0 mirror에서 읽어 서비스를 재개하고, 이후 저부하 구간에 자기 OST로 `lfs migrate`한다. 이동 I/O는 TBF로 속도를 제한한다.
 
 **검증 방법**
-
-| 항목 | 비교 |
-|---|---|
-| 초기 로드 시간 | 기본 레이아웃 vs 소비 노드 배치 vs 제안 기법 |
-| 로드 중 다른 stage의 처리량 변화 | 위와 같음 |
-| striping 효과 | stripe count 1(로컬) vs 2(로컬 + 원격) vs 4 vs 5 |
-| 재분할 시 이동 바이트와 소요 시간 | 위와 같음 |
-| 장애 복구 시간 | mirror 없음 vs OST0 mirror + P'_k vs P''_k |
+- 초기 로드 시간과 로드 중 다른 stage 처리량
+- stripe count 1/2/4/5 비교
+- 재분할 시 이동 바이트와 시간
+- 장애 복구 시간 (mirror 없음 / OST0 mirror + P'_k / P''_k)
 
 **관련 연구와의 차이**
 
-EdgeShard, PipeEdge, LOIP는 연산량, 메모리, 네트워크로 분할을 정한다. 본 기법은 다음 세 가지를 추가한다.
-1. 분할 결정에 노드별 저장 I/O 부하를 포함한다.
-2. 분할 결과로 데이터 배치를 함께 정한다.
-3. 장애 대체 분할을 기준으로 복제 위치를 정한다.
+EdgeShard, PipeEdge, LOIP는 연산·메모리·네트워크로 분할한다. 본 기법은 분할에 저장 I/O 부하를 포함하고, 분할 결과로 배치를 함께 정하고, 장애 대체 분할을 기준으로 복제 위치를 정한다.
 
 **원 IFLustre와의 관계**
 
-- 시작 OST 지정(`lfs setstripe -c -i`)을 그대로 사용한다.
-- 할당 기준을 "OSS 여유 처리량"에서 "소비 노드와 연산 부하"로 확장한다.
-- 1GbE에서 stripe count 증가가 불리해지는 현상은 원 관찰("성능은 가장 느린 OSS가 결정")의 연장으로 설명한다.
+시작 OST 지정을 그대로 쓰고, 할당 기준을 소비 노드와 연산 부하로 확장한다. 1GbE에서 stripe count 증가가 불리한 현상은 원 관찰("성능은 가장 느린 OSS가 결정")의 연장으로 설명한다.
 
-#### 3.8.2 ② KV cache 저장과 재사용
+#### 3.8.2 ② 의미 기반 content-addressed KV 저장소
 
 **정의**
 
-각 stage는 자기 LG 구간의 KV를 생성한다. 이를 Lustre에 저장하고, 같은 prefix를 가진 요청이 다시 오면 prefill을 다시 계산하지 않고 저장된 KV를 읽어서 사용한다.
+설비 단위로 뒤에만 이어 쓰는 컨텍스트를 유지하고, 그 KV를 데이터 수집 시점에 미리 계산한다. 계산한 KV는 내용 주소로 식별되는 불변 객체로 DFS에 저장한다. 질의는 컨텍스트의 KV를 주소로 찾아 읽고, 아직 계산되지 않은 꼬리 부분과 질문만 prefill한다.
+
+**설계 원칙: 이름, 위치, 정책의 분리**
+
+| 구분 | 결정 근거 | 예 |
+|---|---|---|
+| 이름 (식별) | 내용 | 토큰 체인 해시, 모델 버전, 해당 LG에 영향을 주는 어댑터 버전, LG 번호 |
+| 위치 (배치) | 비용 모델 (3.9.3절) | 어느 OST, mirror 여부, 메모리 상주 여부 |
+| 정책 | IoT 의미 정보 | 설비·라인(묶음 단위, 우선순위), 시간(보존, 압축 대상), 이상 여부(압축 시 원문 유지), 접근 패턴(미리 읽기) |
+
+이름이 위치와 독립이므로, 객체를 옮기거나 복제해도 이름과 유효성이 바뀌지 않는다. 의미 정보는 이름에 들어가지 않으므로, 정책을 바꿔도 객체를 다시 만들 필요가 없다.
 
 **해결해야 하는 이유**
-
-1. **노드당 KV 공간이 작다.** stage 1/4의 KV 가용량은 약 1.5GB로, 8k 세션 약 5개에 해당한다(3.1.3절). 4개 라인, 여러 운영자, 멀티턴 세션이 하루 동안 만드는 세션 수는 이보다 훨씬 많다. 메모리에서 밀려난 KV를 보관할 저장 계층이 필요하다.
-2. **Orin Nano에서 긴 컨텍스트 prefill은 비용이 크다.**
-
-   | 항목 | 추정값 | 비고 |
-   |---|---|---|
-   | Qwen3-4B 8k 토큰 prefill 연산량 | 약 8.6e13 FLOP | 선형 항 약 6.6e13 + attention 항 약 2.0e13 (부록 A) |
-   | 4-stage 파이프라인 prefill 시간 | 수 초~10초 이상 | 노드당 유효 연산 성능 가정에 따른 범위 (O4에서 측정) |
-   | stage당 KV(288MiB) 읽기 시간 | 로컬 NVMe 약 0.1–0.3초, 원격 1GbE 약 2.6초 | O1, O4에서 측정 |
-
-   로컬 KV를 읽는 것이 다시 계산하는 것보다 훨씬 빠르다. 그러나 원격 KV 읽기는 재계산과 비슷해질 수 있다. 그래서 KV 위치가 재사용 효과를 결정한다.
-3. **IoT 질의는 재사용률이 높다.** 같은 라인 질의는 같은 시스템 지시문과 설비 매뉴얼(2k–4k 토큰)을 포함한다. 연속 질의는 겹치는 센서·로그 구간을 포함한다(3.2.3절).
-4. **KV I/O는 간섭 문제의 원인이자 피해자이다.**
-   - KV 쓰기는 저장 위치 노드의 메모리(캐시), CPU, NVMe를 사용한다.
-   - KV 읽기 지연은 TTFT로 이어진다.
-   - 원격 KV 읽기는 activation 전달과 같은 NIC를 쓴다(D4).
-   - KV 공간이 작을수록 저장 계층 I/O가 늘어나므로, 메모리 용량 간섭(D2)과 직접 연결된다.
+1. **슬라이딩 윈도우에서 prefix 재사용이 깨진다.** 기존 질의 시점 prefix 재사용(vLLM, LMCache)에서는 기록 구간이 매번 다시 계산된다(2.4.2절).
+2. **Orin Nano에서 prefill은 비용이 크다.** Qwen3-4B 8k 토큰 prefill은 약 8.6e13 FLOP으로, 4-stage에서 수 초에서 10초 이상 걸린다(추정, O4). 반면 로컬 NVMe에서 stage당 KV 288MiB를 읽는 데는 약 0.1–0.3초가 걸린다.
+3. **설비 컨텍스트 KV는 메모리보다 크다.** 8개 컨텍스트 × 8k이면 stage당 약 2.25GiB로, 상주 가용량(1.5–2.6GB)을 넘는다. 16k 한계에서는 두 배가 된다. 저장 계층이 필수이다.
+4. **여러 질의가 같은 내용을 공유한다.** 같은 라인의 컨텍스트는 지시문·매뉴얼 KV를 공유한다. 같은 설비를 묻는 여러 운영자는 같은 설비 로그 KV를 공유한다. 내용 주소로 중복 없이 한 번만 저장하고 계산한다.
+5. **분할 변경, 장애, 복제를 단순하게 만든다.** 불변 객체는 복제본이 낡지 않고, 이름이 위치와 무관하므로 재배치가 위치 변경만으로 끝난다.
+6. **어댑터 버전이 KV 유효성을 바꾼다.** 버전 의존성을 이름에 넣어야 잘못된 KV를 재사용하지 않는다.
+7. **KV I/O는 간섭의 원인이자 피해자이다.** 수집 시점 prefill의 KV 쓰기와 컨텍스트 읽기, 질의 시점 KV 읽기가 모두 저장 위치 노드의 메모리·CPU·NIC를 쓴다.
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 2a | 저장 단위: chunk 크기, 파일 단위, 메타데이터 연산 수 |
-| 2b | 배치: LG별 KV 파일의 OST |
-| 2c | 읽기 시점: 요청 도착 후 동기 읽기 vs 미리 읽기 |
-| 2d | 재계산 vs 읽기: chunk별로 어느 쪽이 빠른지 (NIC와 OST 부하에 따라 달라짐) |
-| 2e | 재분할 후 호환: stage 구간이 바뀌어도 기존 KV 사용 가능 여부 |
-| 2f | 캐시 이중 점유: KV 파일을 읽으면 page cache와 GPU 버퍼에 이중으로 존재 |
-| 2g | 용량 관리: 삭제 정책, 공통 prefix 고정 |
+| 2a | 주소 설계: 무엇을 이름에 넣는가 |
+| 2b | 컨텍스트 구성: 토큰 단위 결정성, chunk 경계 |
+| 2c | 수집 시점 prefill: 배치 간격, 읽기 증폭(D8), 데이터 최신성 |
+| 2d | 묶음(pack)과 인덱스: 메타데이터 비용, 조회 비용 |
+| 2e | 배치와 복제: LG pack의 OST, 공유 prefix와 봉인된 pack의 mirror |
+| 2f | 메모리 상주와 미리 읽기: stage별 상주 집합, stage 간 조정 |
+| 2g | 압축: 시점, 결정적 규칙, 이상 기록 보존 |
+| 2h | 어댑터 버전과 유효성: 범위 반영 주소, 부분 재생성 |
+| 2i | 수거(GC)와 용량 |
+| 2j | 읽기 경로: 재계산 vs 읽기 선택, 캐시 이중 점유 |
 
 **해결 방법**
 
-1. **저장 단위 (2a)**
-   - 파일 1개 = (prefix 그룹, LG). 경로: `kv/{prefix_hash}/lg{i}.kv`
-   - 256토큰 chunk를 파일 안에 오프셋으로 이어 쓴다(append). chunk별 오프셋과 해시는 파일별 인덱스(`.idx`)에 기록한다.
-   - 크기: LG 기준 chunk당 3MiB, 8k 토큰 파일 96MiB.
-   - chunk마다 파일을 만들면 세션 하나에 파일 384개가 생긴다(chunk 32개 × LG 12개). 이 방식은 세션당 파일 12개로 줄여 MDS(N0) 메타데이터 연산을 줄인다.
-2. **prefix 식별 (2a)**
-   - chunk 해시 체인을 사용한다: `h_n = hash(h_{n-1}, tokens_n)`.
-   - 요청이 도착하면 가장 긴 일치 prefix를 찾는다.
-   - 공통 prefix(시스템 지시문 + 매뉴얼)는 별도 prefix 그룹으로 저장해 여러 세션이 공유한다.
-3. **배치 (2b)**
-   - LG i의 KV 파일은 기본적으로 LG i 소비 노드의 OST에 둔다(로컬 쓰기·읽기, NIC 미사용).
-   - 비용 모델이 소비 노드를 병목으로 판단하면, 쓰기 대상을 OST0으로 바꾼다. 이 경우 읽기가 원격이 되므로 비용 모델이 F_k 증가와 함께 비교한다.
-   - 실제 적용은 LG별 디렉터리 default layout으로 하며, 새로 생성되는 파일부터 반영된다.
-4. **읽기 시점 (2c)**
-   - 요청이 도착하면 일치 범위를 확인하고, 각 stage의 KV Manager가 자기 LG 파일을 동시에 읽는다(stage 간 병렬).
-   - stage 1이 새 토큰의 prefill을 시작하는 동안 뒤쪽 stage는 KV 읽기를 진행한다.
-   - 운영 정책에 반복 시간대(교대 시작 등)가 있으면, 해당 라인의 공통 prefix를 미리 읽는다(플래너 조치 `prefetch_prefix`).
-5. **재계산 vs 읽기 (2d)**
-   - chunk별로 예상 읽기 시간(현재 NIC·OST 부하를 반영한 F_k)과 예상 재계산 시간(LG 연산 프로파일)을 비교해 작은 쪽을 고른다.
-   - 원격 읽기이거나 NIC가 체크포인트 복제로 바쁜 구간에는 재계산이 선택될 수 있다.
-6. **캐시 이중 점유 방지 (2f)**
-   - KV 파일은 읽은 직후 GPU 버퍼로 옮긴다. 이후 `posix_fadvise(DONTNEED)`로 page cache에서 해제한다.
-   - 대용량 순차 읽기에는 direct I/O 사용 여부를 O4에서 비교해 결정한다.
-7. **재분할 호환 (2e)**
-   - KV를 LG 단위로 저장하므로, stage 구간이 바뀌어도 새 담당 노드가 LG 파일을 그대로 읽는다.
-   - 원격 위치의 파일은 재사용 빈도에 따라 이동 여부를 정한다.
-8. **용량 관리 (2g)**
-   - 재사용 빈도를 가중치로 준 LRU를 적용한다.
-   - 공통 prefix는 고정(pin)하고, FLR mirror를 OST0에 둔다(장애 대비 겸용).
-   - OST 사용률이 임계값을 넘으면 오래된 세션 KV부터 삭제한다.
+1. **주소 (2a)**
+
+   ```
+   chain_0  = H(model_id ‖ tokenizer_id)
+   chain_n  = H(chain_{n-1} ‖ tokens(chunk_n))                  # chunk 단위 체인 해시
+   key(i,n) = H(model_id ‖ adapter_scope_version(i) ‖ LG_i ‖ chain_n)
+   adapter_scope_version(i) = LG_i 이하 layer에 적용된 어댑터 버전 (없으면 "none")
+   ```
+
+   - LoRA를 LG9–11에만 적용하면 LG0–8의 주소에는 어댑터 버전이 들어가지 않는다. 따라서 적응 라운드가 지나도 그대로 유효하다.
+   - 체인 해시 덕분에 같은 앞부분을 가진 컨텍스트끼리 chunk를 공유한다. 그래서 같은 라인의 지시문·매뉴얼은 한 번만 저장된다.
+   - 세션 턴은 설비 컨텍스트의 체인에서 갈라지는 별도 체인이 된다.
+
+2. **컨텍스트 구성 (2b)**
+   - 레코드를 하나씩 따로 토큰화하고 토큰 ID를 이어 붙인다. 텍스트를 합친 뒤 토큰화하면 경계에서 토큰이 합쳐질 수 있어 결정성이 깨지기 때문이다.
+   - 컨텍스트 시작부터 256토큰마다 chunk 경계를 고정한다. 가득 찬 chunk만 객체가 되고(봉인), 덜 찬 꼬리는 질의 시 prefill한다.
+3. **수집 시점 prefill (2c)**
+   - N0의 Prefill Scheduler가 설비별로 봉인 가능한 chunk를 모아, 배치 간격(기본 5분, 변수 1–15분)마다 파이프라인에 낮은 우선순위 작업으로 넣는다. 서빙 요청이 우선이다.
+   - 작업을 실행하려면 그 컨텍스트의 이전 KV가 각 stage 메모리에 있어야 한다. 상주하지 않은 컨텍스트는 저장소에서 읽어야 한다(읽기 증폭).
+   - 배치 간격은 다음 셋의 균형으로 정한다.
+     - 길수록 읽기 증폭과 연산 횟수가 줄어든다.
+     - 길수록 질의 시점 꼬리 prefill(데이터 최신성)이 늘어난다.
+     - 연산 여유와 SLO에 맞아야 한다.
+   - 비용 모델과 플래너가 설비별로 조정한다.
+   - 연산 비용 추정: 8개 설비, 설비당 시간당 7.2k 토큰이면 시간당 약 5.8만 토큰이다. 이는 시간당 수십 초에서 수 분의 파이프라인 연산으로, 유휴 시간의 일부를 쓴다(O7에서 측정).
+4. **묶음과 인덱스 (2d)**
+   - 같은 (컨텍스트, LG, epoch)의 chunk를 순서대로 pack 파일에 이어 쓴다(32 chunk, LG당 96MiB).
+   - 가득 차면 pack을 봉인하고, 이후 불변으로 다룬다.
+   - 설비 로그 chunk의 위치는 (컨텍스트, epoch, chunk 순번)으로 경로와 오프셋을 계산한다. pack 헤더에 기록된 주소로 내용을 검증한다.
+   - 공유 prefix chunk는 라인별 공유 pack에 두고, 작은 전역 인덱스(주소 → 경로·오프셋)로 찾는다.
+   - chunk마다 파일을 만드는 방식(세션당 수백 개 파일)보다 MDS 메타데이터 연산이 크게 줄어든다. 원 IFLustre의 소파일 관찰을 반영한 설계이다.
+5. **배치와 복제 (2e)**
+   - LG i의 pack은 LG i 소비 노드 OST에 둔다(로컬 쓰기·읽기).
+   - 비용 모델이 소비 노드를 병목으로 판단하면, 새 pack의 위치를 다른 노드로 바꾼다(디렉터리 default layout).
+   - 공유 prefix pack과 봉인된 설비 pack은 OST0에 FLR mirror를 둔다. 이 복제는 지연시켜 TBF로 속도를 제한한다. 불변 객체이므로 mirror가 낡지 않는다.
+6. **메모리 상주와 미리 읽기 (2f)**
+   - 각 stage는 상주 집합 R_k를 가진다.
+   - 질의 TTFT는 상주하지 않은 stage들의 KV 읽기 시간 중 최댓값이 결정한다. 그래서 상주 집합을 stage마다 독립적으로 정하지 않고 같은 컨텍스트를 함께 상주시키도록 조정한다. 상주 공간이 가장 작은 stage(N4)가 기준이 된다.
+   - 운영 정책의 시간대 정보(교대 시각, 라인 우선순위)로 질의가 몰릴 설비 컨텍스트를 미리 읽는다.
+7. **압축 (2g)**
+   - 컨텍스트가 한계에 도달하면 결정적 규칙으로 압축한다.
+     - 일정 시간보다 오래된 정상 레코드는 구간별 통계 한 줄로 요약한다.
+     - 경고·이상 레코드는 원문 그대로 유지한다.
+   - 새 epoch 컨텍스트는 `[지시문][매뉴얼][헤더][요약][최근 레코드]`이다.
+   - 공유 prefix KV는 그대로 재사용하고, 요약 이후 부분만 다시 계산한다.
+   - 이전 epoch 객체는 참조하는 세션이 끝나면 수거 대상이 된다.
+   - 규칙 기반이므로 결과가 재현 가능하고 주소 체계와 맞는다. LLM 요약은 선택 비교 항목으로 둔다.
+8. **어댑터 버전과 부분 재생성 (2h)**
+   - LG9 입력 activation(hidden state, 토큰당 5KiB)을 수집 시점 prefill 중에 함께 저장한다(경계 activation 객체).
+   - 새 어댑터 버전으로 전환할 때, LG0–8의 KV는 그대로 쓰고 LG9–11의 KV만 경계 activation에서 다시 계산한다.
+   - 비용 비교:
+     - 처음부터 다시 계산하는 것보다 연산이 약 75% 줄어든다.
+     - 경계 activation 저장 비용은 KV의 약 3.5%이다.
+   - 재생성은 컨텍스트별로 진행한다. 재생성이 끝난 컨텍스트부터 새 버전으로 서빙하고, 나머지는 이전 버전 어댑터(LG당 약 2MB)를 함께 유지해 서빙한다.
+9. **수거와 용량 (2i)**
+   - 다음 기준 중 하나라도 해당하는 객체는 유지하고, 나머지는 유예 시간 뒤 삭제한다.
+     - 현재 epoch에서 쓰는 객체
+     - 사용 중인 어댑터 버전의 객체
+     - 열린 세션이 참조하는 객체
+   - OST 사용률이 임계값을 넘으면 오래된 epoch와 세션 객체부터 지운다.
+10. **읽기 경로 (2j)**
+    - chunk별로 예상 읽기 시간(경로, NIC·OST 부하)과 재계산 시간을 비교해 작은 쪽을 고른다.
+    - 읽은 데이터는 GPU 버퍼로 옮긴 뒤 page cache에서 해제한다(`posix_fadvise(DONTNEED)`, direct I/O와 비교).
 
 **검증 방법**
 
 | 항목 | 비교 |
 |---|---|
-| TTFT p50/p99 | 재사용 없음 vs 메모리 안 재사용만 vs Lustre 기본 레이아웃 저장 vs 제안 기법 |
-| prefix hit rate, 저장 KV 용량 | 위와 같음 |
-| 미리 읽기 효과 | 사용 vs 미사용 |
-| 재계산/읽기 선택 정확도 | 실제 빠른 쪽과의 일치율 |
-| 재분할 직후 TTFT | 위와 같음 |
-| page cache 점유량 | fadvise 사용 vs 미사용 |
-| MDS 메타데이터 연산 수 | chunk별 파일 vs (prefix, LG) 파일 |
+| 슬라이딩 윈도우 질의의 prefix 재사용률과 TTFT | 질의 시점 prefix 재사용 vs 이어 쓰기 컨텍스트 + 수집 시점 prefill |
+| 수집 시점 prefill 비용 | 배치 간격별 연산 시간, 읽기 증폭량, 데이터 최신성 |
+| 메타데이터 연산 수 | chunk별 파일 vs pack |
+| 중복 제거 효과 | 공유 prefix 저장량 |
+| 어댑터 전환 비용 | 전체 LoRA(전체 재계산) vs 상위 LG LoRA(경계 activation 재생성) |
+| 압축 비용과 품질 | 규칙 압축 vs LLM 요약 vs 압축 없음(한계 도달 시 재계산) |
+| stage 간 상주 조정 | 독립 상주 vs 조정 상주의 TTFT |
 
 **관련 연구와의 차이**
 
-CachedAttention, Mooncake, LMCache는 연산 노드와 분리된 메모리·스토리지 풀을 쓴다. KVSwap과 Dual-Blade는 장치 한 대의 로컬 SSD를 쓴다. 본 기법은 다음 세 점에서 다르다.
-1. 여러 노드가 서로의 KV를 저장해 주는 공유 DFS를 쓴다.
-2. 저장 위치를 정할 때 그 노드의 연산 부하와 NIC 상태를 고려한다.
-3. KV를 LG 단위로 저장해 분할 변경과 호환되게 한다.
+| 연구 | 차이 |
+|---|---|
+| vLLM, SGLang, LMCache, Mooncake | 블록·chunk 해시로 KV를 식별하지만 질의 시점에 만들고, 스트림·버전 범위·의미 정책을 다루지 않는다. |
+| Prompt Cache, CacheBlend, EPIC | 정적 모듈을 근사적으로 재사용한다. |
+| TurboRAG, MemLLM | 고정 문서의 KV를 미리 계산한다. |
+| Venti, LBFS, IPFS | 일반 데이터의 CAS이다. |
+| CoStripe | IoT 스트림의 KV를 수집 시점에 만들어 근사 없이 재사용한다. 주소에 어댑터 범위를 반영하고, 의미 정보로 묶음·배치·압축하며, 하이퍼컨버지드 엣지 DFS에서 간섭을 고려해 배치한다. |
 
 **원 IFLustre와의 관계**
 
-- read-aware relocation을 KV 파일에 적용한다(재사용 빈도와 소비 노드 기준 재배치).
-- 소파일 메타데이터 비용에 대한 관찰을 파일 단위 설계에 반영한다.
+소파일 메타데이터 관찰을 pack 설계로, read-aware relocation을 의미 기반 배치와 미리 읽기로 확장한다.
 
-#### 3.8.3 ⑤ 공동 적응 학습의 체크포인트와 어댑터
+#### 3.8.3 ⑤ 적응 학습과 KV 유효성
 
 **정의**
 
-1. N0가 W1 데이터로 지시-응답 학습 샘플을 만든다.
-2. N1–N4 서빙 파이프라인이 메모리에 올린 FP16 base 가중치를 공유하면서, 같은 파이프라인 위에서 LoRA 파라미터를 학습한다.
-3. 각 stage는 자기 LG의 LoRA 파라미터와 optimizer 상태를 체크포인트로 저장하고, 장애 대비를 위해 다른 노드에 복제한다.
-4. 라운드가 끝나면 모든 stage가 새 어댑터 버전으로 동시에 전환한다.
+N0가 학습 샘플을 만들고, 서빙 파이프라인이 FP16 base 가중치를 공유하며 상위 LG(LG9–11)의 LoRA를 학습한다. forward는 전체 stage를 지나고, backward와 학습 상태는 LG9–11 stage(기본 N4)에만 생긴다. 라운드가 끝나면 새 어댑터로 전환하고, 영향받는 LG9–11의 KV를 다시 만든다.
 
 **해결해야 하는 이유**
-
-1. **모델이 현장 변화를 따라가야 한다.** IoT 데이터의 분포는 설비 노후, 라인 변경, 계절 요인으로 바뀐다. 적응 없이 운용하면 응답 품질이 떨어진다.
-2. **적응은 엣지 안에서 해야 한다.** 데이터 반출이 제한되기 때문이다.
-3. **8GB 노드 1대로는 학습할 수 없다.** Qwen3-4B FP16 base는 노드 1대에 들어가지 않는다. 4-bit base 학습(QLoRA)은 Jetson ARM64에서 bitsandbytes가 불안정하다는 보고가 있다. 따라서 서빙 파이프라인의 base 가중치를 공유하는 공동 학습이 유일하게 현실적인 방법이다.
-4. **체크포인트는 생성 노드에만 두면 장애에 취약하다.** 각 stage의 체크포인트는 그 노드에서 생성된다. 그 노드의 OST에만 저장하면 노드 장애 시 연산과 체크포인트가 함께 사라진다. 따라서 원격 복제가 필요하다. 이 복제 I/O는 1GbE에서 원격 KV 읽기, activation 전달과 경쟁한다(D4, D6).
-5. **체크포인트가 메모리를 쓴다.** 체크포인트 스냅샷과 쓰기 버퍼가 page cache를 늘려 KV 공간을 줄인다(D2).
-6. **어댑터 버전이 일관되어야 한다.** 4개 stage가 같은 버전의 LG 어댑터를 써야 올바른 출력이 나온다. 한 stage라도 이전 버전이면 결과가 틀린다.
-7. **이벤트를 만든다.** 라운드 시작과 종료는 새 객체(어댑터 버전)와 부하 변화를 만든다. 원 IFLustre처럼 과거 로그로 결정하는 방식은 새 버전에 적용할 수 없다(D7). 그래서 ⑦의 재계획을 일으키는 주요 이벤트가 된다.
+1. **모델이 현장 변화를 따라가야 한다.** IoT 데이터 분포는 설비 노후, 라인 변경, 계절로 바뀐다.
+2. **적응은 엣지 안에서 해야 한다.** 데이터 반출이 제한된다.
+3. **8GB 노드 1대로는 학습할 수 없다.** 서빙 base를 공유하는 공동 학습이 현실적인 유일한 방법이다.
+4. **어댑터 변경은 저장 KV를 무효로 만든다.** 전체 layer에 LoRA를 적용하면 매 라운드 모든 컨텍스트의 모든 KV를 다시 만들어야 한다(8개 컨텍스트 × 8k 토큰 전체 prefill). 범위를 제한하고 경계 activation을 쓰면 이 비용이 크게 줄어든다.
+5. **체크포인트는 생성 노드에만 두면 장애에 취약하다.** 원격 복제가 필요하고, 이 복제는 1GbE에서 서빙 트래픽과 경쟁한다.
+6. **학습 연산과 메모리가 N4에 몰린다.** N4는 출력 head도 계산하므로, 학습까지 더해지면 병목이 될 수 있다. 분할(⑧)이 이를 반영해야 한다.
+7. **새 버전은 이벤트를 만든다.** 새 어댑터 버전에는 이력이 없으므로 재계획(⑦)이 필요하다.
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 5a | 체크포인트 저장·복제 위치: 로컬 OST, OST0, 다른 stage 노드 OST |
-| 5b | 체크포인트 쓰기·복제의 시점과 속도: 학습 진행과 내구성 보장 vs 서빙 영향 |
-| 5c | 적응 시간대와 연산 비율: 언제, 서빙 대비 얼마만큼 학습할지 |
-| 5d | 버전 전환: 모든 stage가 같은 버전으로 전환, 실패 시 이전 버전 유지 |
-| 5e | 학습 샘플 전달: N0에서 stage 1(입력)과 stage 4(정답)로 전달 |
+| 5a | LoRA 적용 범위: 적응 품질 vs KV 재생성 비용 vs 학습 비용 |
+| 5b | 체크포인트 저장·복제 위치·시점·속도 |
+| 5c | 적응 시간대와 연산 비율 |
+| 5d | 버전 전환: 컨텍스트별 전환, 이전 버전 유지, 실패 시 롤백 |
+| 5e | KV 재생성 일정 (경계 activation 기반) |
 
 **해결 방법**
-
-1. **3단계 체크포인트 (5a, 5b)**
-
-   | 단계 | 동작 | 효과 |
-   |---|---|---|
-   | ① 메모리 스냅샷 | LoRA 상태를 메모리 버퍼에 복사한다(stage당 약 35MB, rank 16). | 학습 정지 시간은 이 복사 시간뿐이다. |
-   | ② 로컬 쓰기 | 자기 노드 OST에 쓴다(NVMe, NIC 미사용). | 프로세스 장애 대비 |
-   | ③ 원격 복제 | `lfs mirror extend`로 원격 OST에 mirror를 추가한다. | 노드 장애 대비 |
-
-   ②와 ③을 분리하여, ③만 시점과 속도를 조절할 수 있게 한다.
-2. **복제 위치 (5a)**
-   - 기본값은 OST0이다. N0는 서빙 연산이 없고, 해당 stage의 대체 노드이기도 하다(3.8.1절 P'_k).
-   - 4개 stage가 동시에 OST0으로 복제하면 N0의 NIC(1GbE)가 병목이 된다. 그래서 비용 모델이 OST0 집중과 다른 stage 노드로의 분산을 비교해 선택한다.
-3. **복제 속도와 시점 (5b)**
-   - 체크포인트 I/O에 Lustre jobid를 부여한다(예: `ckpt.r{round}.s{stage}`).
-   - NRS TBF로 OST별 RPC 속도 상한을 둔다.
-   - 복제는 요청률이 낮은 구간에 몰아서 수행한다. 단, 복제되지 않은 체크포인트가 체크포인트 간격 상한(CkptMax)을 넘으면 속도 제한 범위 안에서 즉시 복제한다.
-   - 대용량 설정(rank 64, 전체 linear)에서는 stage당 약 0.4GB, 4개 stage 합계 약 1.6GB이다. OST0 한 곳으로 복제하면 1GbE로 약 14초가 걸리므로 시점 제어가 중요해진다.
-4. **적응 시간대와 연산 비율 (5c)**
-   - 플래너가 요청률 예측과 운영 정책으로 적응 시간대를 정한다.
-   - 시간대 안에서는 서빙 요청을 우선 처리하고, 남는 연산 시간에 학습 micro-batch를 넣는다(서빙 우선 토큰 예산).
-   - 학습이 정해진 라운드 완료 상한(RoundMax)을 넘을 것으로 예상되면 학습 비율을 높일지, 다음 시간대로 넘길지를 플래너가 정한다.
-5. **버전 전환 (5d)**
-   1. 라운드가 끝나면 각 stage가 자기 LG 어댑터를 확정한다(`adapters/v{n}/lg{i}.safetensors`, 로컬 OST).
-   2. OST0에 mirror를 추가한다.
-   3. 4개 stage의 확정이 모두 끝나면 동시에 전환한다(2단계 전환: 준비 → 전환). 진행 중인 요청은 이전 버전으로 끝낸다.
-   4. 한 stage라도 확정에 실패하면 모든 stage가 이전 버전을 유지한다.
-   - 어댑터는 생성 노드와 소비 노드가 같으므로, 정상 상태에서는 배포를 위한 이동이 없다. 분할이 바뀐 경우에만 이동한다.
-6. **학습 샘플 전달 (5e)**
-   - 학습 샘플은 `train/r{round}/`에 저장한다.
-   - stage 1은 입력 토큰, stage 4는 정답 토큰을 읽는다. 라운드당 수십 MB로 작으며, 라운드 시작 전에 미리 읽는다.
+1. **LoRA 범위 (5a)**
+   - 기본은 LG9–11이고, 비교 구성으로 LG6–11과 전체를 둔다.
+   - 품질은 라벨이 있는 IoT 판정 과제로 확인한다(4.2.2절).
+2. **3단계 체크포인트 (5b)**
+   1. 메모리 스냅샷 (N4, rank 16 기준 약 35MB)
+   2. 로컬 OST 쓰기
+   3. `lfs mirror extend`로 OST0에 지연 복제
+   - 복제는 jobid로 태깅하고 TBF로 속도를 제한하며, 저부하 구간에 실행한다.
+   - 복제되지 않은 체크포인트가 간격 상한(CkptMax)을 넘으면 속도 제한 범위 안에서 즉시 복제한다.
+3. **적응 시간대 (5c)**
+   - 플래너가 요청률 예측과 정책으로 시간대와 학습 비율을 정한다.
+   - 서빙 요청을 우선 처리하고, 남는 연산에 학습 micro-batch를 넣는다.
+   - 선택 최적화: 설비 컨텍스트에서 만든 학습 샘플은 저장된 경계 activation을 입력으로 쓸 수 있다. 이 경우 stage 1–3의 forward를 생략할 수 있다.
+4. **버전 전환 (5d)**
+   - 라운드가 끝나면 어댑터를 확정하고(`adapters/v{n}/lg{i}`) OST0에 mirror한다.
+   - 재생성이 끝난 컨텍스트부터 새 버전으로 서빙하고, 나머지는 이전 버전으로 서빙한다. 한 요청 안에서는 LG9–11 전체가 같은 버전을 쓴다.
+   - 확정에 실패하면 이전 버전을 유지한다.
+5. **KV 재생성 (5e)**
+   - 비용(경계 activation 읽기, LG9–11 연산, KV 쓰기)을 비용 모델로 계산해 저부하 구간에 컨텍스트별로 실행한다.
+   - 질의가 많은 설비부터 처리하며, 우선순위는 정책과 접근 빈도로 정한다.
 
 **검증 방법**
-
-| 항목 | 비교 |
-|---|---|
-| 체크포인트·복제 중 TTFT p99와 시계열 | 복제 위치(OST0 / 다른 stage / 분산), TBF 유무, 시점 제어 유무 |
-| 학습 정지 시간, 학습 처리량(step/s), 라운드 완료 시간 | 위와 같음 |
-| 장애 시 학습 재개 가능 여부와 손실 step 수 | 원격 복제 유무 |
-| 버전 전환 중 서빙 중단 시간, 버전 불일치 발생 여부 | 2단계 전환 vs 개별 전환 |
-| 대용량 체크포인트(stage당 약 0.4GB) 시 위 지표 | 위와 같음 |
+- 체크포인트·복제 중 TTFT p99
+- 학습 처리량과 라운드 완료 시간
+- 재생성 소요 시간과 재생성 중 TTFT
+- LoRA 범위별 적응 품질
+- 장애 시 학습 재개 손실
+- 버전 불일치 발생 여부
 
 **관련 연구와의 차이**
 
-- FlexLLM, ConServe는 같은 GPU에서 추론과 미세조정을 함께 실행하는 연산 자원 공유를 다룬다.
-- CheckFreq, Gemini, DataStates-LLM은 학습 처리량과 복구 시간을 목표로 한다.
-- 본 기법은 엣지 파이프라인에서 공동 학습이 만드는 체크포인트·복제 I/O의 위치·시점·속도를, 같은 저장 계층과 NIC를 쓰는 서빙 SLO 기준으로 정한다.
+FlexLLM 등 공동 실행 연구는 연산 자원 공유를, CheckFreq 등은 학습 처리량을 다룬다. 본 기법은 어댑터 변경이 저장된 KV에 주는 영향을 LoRA 범위와 경계 activation으로 제한하고, 그 재생성·복제 I/O를 서빙 SLO 기준으로 스케줄한다.
 
 **원 IFLustre와의 관계**
 
-- runtime-aware allocation(기다렸다가 할당)을 복제 I/O의 시점 제어와 속도 제한으로 확장한다.
-- 원 read-aware relocation 대신, 생성 시점 로컬 저장 + 지연 원격 복제 구조를 쓴다.
+runtime-aware allocation을 복제·재생성 I/O의 시점 제어와 속도 제한으로 확장한다.
 
 #### 3.8.4 ③ 저장-연산 간섭 측정과 완화
 
 **정의**
 
-한 노드에서 OSS(서버 측)와 Lustre client가 처리하는 I/O가, 같은 노드의 LLM 연산(추론 stage, 공동 학습)을 지연시키는 현상이다. 이를 측정하고, 모델링하고, 완화한다. 간섭 경로는 네 가지로 나눈다.
+한 노드의 OSS와 client가 처리하는 I/O가 같은 노드의 LLM 연산(서빙, 수집 시점 prefill, 학습, 재생성)을 지연시키는 현상이다. 경로는 네 가지로 나눈다.
 
 | 경로 | 내용 |
 |---|---|
-| 메모리 용량 | 캐시와 버퍼가 KV와 런타임 메모리를 줄인다. 메모리 회수 지연, 스왑, OOM을 일으킬 수 있다. |
-| CPU | OSS 스레드, LNet/TCP, softirq, 체크섬이 LLM 런타임의 CPU 작업과 경쟁한다. |
-| 메모리 대역폭 | 데이터 복사와 DMA가 decode의 메모리 대역폭을 나눠 쓴다. |
+| 메모리 용량 | 캐시·버퍼가 상주 KV와 런타임 메모리를 줄이고, 메모리 회수 지연·스왑·OOM을 일으킨다. |
+| CPU | OSS 스레드, LNet/TCP, softirq, 체크섬이 LLM 런타임과 경쟁한다. |
+| 메모리 대역폭 | 데이터 복사와 DMA가 decode 대역폭을 나눠 쓴다. |
 | 네트워크 | 원격 I/O가 activation 전달과 같은 NIC를 쓴다. |
 
 **해결해야 하는 이유**
-
-1. **엣지에는 스토리지 전용 노드가 없다.** N0를 제외한 모든 OST가 서빙 stage 노드에 있다.
+1. **스토리지 전용 노드가 없다.** N0를 제외한 모든 OST가 서빙 stage 노드에 있다.
 2. **메모리 용량이 가장 먼저 한계에 도달한다.**
-   - Lustre client 캐시의 기본 상한은 RAM의 1/2이다.
-   - 다른 노드가 이 노드의 OST를 읽거나 쓸 때도 이 노드의 서버 측 캐시와 버퍼가 사용된다.
-   - 즉, 다른 노드의 I/O가 이 노드의 KV 공간을 줄일 수 있다.
-   - Dual-Blade는 파일 기반 KV 오프로딩에서 page cache thrashing이 성능을 떨어뜨린다고 보고했다.
-3. **CPU 여유가 작다.** Orin Nano의 6개 코어로 LLM 런타임의 CPU 측 작업(커널 실행 준비, 스케줄링, activation 송수신), OSS 서비스 스레드, LNet/TCP 처리, 체크섬을 모두 처리해야 한다.
-4. **메모리 대역폭이 작다.** 68–102GB/s의 메모리 대역폭이 decode 속도의 상한이다. 로컬 NVMe I/O의 DMA와 복사가 이 대역폭의 일부를 사용한다.
-5. **파이프라인이 영향을 키운다.** 한 stage의 지연이 전체 처리량을 결정한다(D3).
-6. **다른 요소들의 공통 입력이다.** ⑧, ②, ⑤의 배치 결정은 모두 "어느 노드에 I/O를 보내면 연산이 얼마나 느려지고 메모리가 얼마나 줄어드는가"를 기준으로 한다. 이 값을 측정하지 않으면 배치 기준이 없다.
-7. **안정성을 확인해야 한다.** client와 OSS의 동시 운용은 Lustre가 권장하지 않는 구성이다. 8GB 노드에서는 메모리 압박이 일상적이므로 동작을 반드시 확인해야 한다(2.5.4절).
+   - client 캐시 기본 상한은 RAM의 1/2이다.
+   - 다른 노드의 KV 읽기를 처리하는 서버 측 캐시도 이 노드의 상주 KV 공간을 줄인다.
+   - Dual-Blade는 파일 기반 KV 오프로딩에서 page cache thrashing을 보고했다.
+3. **CPU와 메모리 대역폭이 작다.** 6코어, 68–102GB/s이다.
+4. **KV 저장소가 저장 I/O를 늘린다.** 수집 시점 prefill, 재생성, 압축, 복제가 추가 I/O를 만든다. 이 I/O가 어느 노드에서 처리되는지가 서빙에 영향을 준다.
+5. **파이프라인이 영향을 키운다(D3).**
+6. **다른 요소들의 공통 입력이다.** 모든 배치 결정의 기준(감속 β, 캐시 점유 cache)이 된다.
+7. **안정성을 확인해야 한다.** client와 OSS의 동시 운용은 8GB 노드에서 반드시 확인해야 한다.
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 3a | 크기: I/O 유형(읽기/쓰기, I/O 크기, 서버 측/client 측, 로컬/원격)별, LLM 단계(prefill/decode/학습)별 지연 계수 |
-| 3b | 경로: 메모리 용량, CPU, 메모리 대역폭, 네트워크 중 주 원인 |
-| 3c | 완화: 배치 외의 노드 내 격리 수단과 그 효과 |
-| 3d | 안정성: client와 OSS 동시 운용 시 메모리 압박 상황의 동작 |
+| 3a | 크기: I/O 유형(읽기/쓰기, 크기, 서버/client 측, 로컬/원격)별, LLM 작업(prefill, decode, 학습)별 감속 |
+| 3b | 경로: 네 경로 중 주 원인 |
+| 3c | 완화: 노드 내 격리 수단 |
+| 3d | 안정성: 메모리 압박 시 동작 |
 
 **해결 방법**
-
-1. **측정 (3a, 3b)**
-   - Node k에서 stage를 실행하는 동안 세 가지 부하를 건다.
-     - 서버 측 부하: 다른 노드에서 Node k의 OST로 fio. 1GbE로 상한 약 117MB/s.
-     - 로컬 client 부하: Node k가 자기 OST를 읽기·쓰기. NVMe 속도까지.
-     - 원격 client 부하: Node k가 원격 OST를 읽기. NIC 경쟁.
-   - 부하 변수와 지표는 4.4절 O2에 정리했다.
-2. **경로 분리 (3b)**
+1. **측정 (3a, 3b).** 서버 측(원격 → 이 노드 OST, 1GbE 상한), 로컬 client, 원격 client 부하를 건 상태에서 stage 연산을 측정한다(4.4절 O2).
+2. **경로 분리 (3b).**
 
    | 경로 | 분리 방법 |
    |---|---|
-   | 메모리 용량 | 캐시 상한을 바꿔가며 KV 가용량, PSI memory, 메모리 회수 지연(kswapd CPU, major fault)을 측정 |
-   | CPU | CPU 분리 적용 전후 비교, 체크섬 on/off |
-   | 메모리 대역폭 | EMC 사용률과 tokens/s의 상관 분석 |
-   | 네트워크 | 원격 부하 중 activation 전달 시간 측정 |
+   | 메모리 용량 | 캐시 상한별 상주 KV, PSI memory, 회수 지연 |
+   | CPU | CPU 분리 전후, 체크섬 on/off |
+   | 메모리 대역폭 | EMC 사용률 상관 |
+   | 네트워크 | 원격 부하 중 activation 전달 시간 |
 
-3. **모델링 (3a)**
-   - 측정값으로 감속 함수 β_k(I/O 유형, LLM 단계, 전력 모드)와 메모리 함수 cache_k(I/O 부하, 캐시 상한)를 회귀로 구한다.
-   - 원 IFLustre의 예측 모델(선형·다항 회귀, random forest)을 재사용한다.
-   - 비용 모델은 이 값으로 후보 배치별 stage 시간 증가와 KV 가용량 감소를 계산한다.
-4. **노드 내 격리 수단 (3c)**
+3. **모델링 (3a).** 감속 함수 β_k와 캐시 점유 함수 cache_k를 회귀로 구한다. 원 IFLustre의 예측 모델을 재사용한다.
+4. **노드 내 격리 수단 (3c).**
 
    | 수단 | 방법 |
    |---|---|
-   | 캐시 상한 | client는 `llite.*.max_cached_mb`를 수백 MB로 제한한다. OSS 측 read/writethrough cache 설정(버전별 파라미터 이름 확인)과 ZFS ARC 상한을 설정한다. |
-   | 캐시 해제 | 대용량 순차 읽기(가중치, KV) 직후 `posix_fadvise(DONTNEED)`를 적용하고, direct I/O와 비교한다. |
-   | CPU 분리 | Lustre CPT(`cpu_pattern`)로 OSS와 ptlrpc 스레드를 지정 코어(예: 1–2개)에 고정한다. LLM 프로세스는 cgroup cpuset으로 나머지 코어에 둔다. |
-   | 체크섬 | `osc.*.checksums` on/off에 따른 CPU 사용과 처리량 차이를 측정한다. 데이터 무결성 요구에 따라 결정한다. |
-   | 속도 제한 | NRS TBF로 I/O 클래스별 상한을 둔다. |
-   | 스왑 | zram 스왑의 활성화 여부를 실험 조건으로 고정하고 기록한다. |
-   | 전력 모드 | `nvpmodel` 모드별로 감속 함수를 측정한다. |
+   | 캐시 상한 | client `max_cached_mb`, OSS read/writethrough cache, ZFS ARC 상한 |
+   | 캐시 해제 | `posix_fadvise(DONTNEED)`, direct I/O 비교 |
+   | CPU 분리 | CPT로 OSS 스레드 고정, LLM은 cgroup cpuset |
+   | 체크섬 | on/off 측정 |
+   | 속도 제한 | NRS TBF |
+   | 스왑 | zram 설정 고정 |
+   | 전력 모드 | 모드별 β 측정 |
 
-5. **안정성 확인 (3d)**
-   - 메모리 사용을 높인 상태(KV 가득 참 + 공동 학습 + 원격 I/O)에서 장시간 I/O를 실행한다.
-   - hang, OOM, 성능 급락 여부를 확인한다.
-   - 문제가 생기면 캐시 상한과 메모리 예약으로 대응한다.
+5. **안정성 (3d).** KV 상주가 가득 찬 상태에서 학습과 원격 I/O를 함께 실행해 장시간 확인한다.
 
 **검증 방법**
-
-| 항목 | 내용 |
-|---|---|
-| 감속 곡선 | I/O 부하에 따른 tokens/s 변화 (prefill/decode/학습, 읽기/쓰기, 서버/client 측, 로컬/원격) |
-| 메모리 용량 영향 | 캐시 상한별 KV 가용량, PSI, OOM 발생 |
-| 경로 분해 | 격리 수단별 감속 감소량 |
-| 비용 모델 예측 오차 | 측정값 대비 예측값 (목표: 평균 오차 15% 이내) |
+- 감속 곡선
+- 캐시 상한별 상주 KV와 PSI
+- 격리 수단별 효과
+- 비용 모델 예측 오차 (목표 평균 15% 이내)
 
 **관련 연구와의 차이**
 
-Heracles, PARTIES, Caladan은 같은 서버의 자원을 나누어 간섭을 줄인다. 본 기법은 노드 내 격리에 더해, 데이터 배치로 간섭을 어느 노드에 둘지 정한다. 또한 8GB 장치에서 가장 먼저 한계에 도달하는 메모리 용량 경로를 명시적으로 다룬다. 기존 저장 간섭 연구(GIFT, LoomIO, IFLustre)는 스토리지 사이의 간섭만 다룬다.
+Heracles 등은 노드 내 자원 분할을 다룬다. 본 기법은 데이터 배치로 간섭 위치를 정하고, 8GB 장치의 메모리 용량 경로를 명시적으로 다룬다.
 
 **원 IFLustre와의 관계**
 
-원 관찰("애플리케이션 성능은 가장 느린 OSS가 결정한다")을 연산 측으로 확장한다: "파이프라인 처리량은 가장 느린 stage가 결정하고, stage 속도와 KV 수용량은 같은 노드의 저장 I/O 부하에 영향을 받는다."
+"성능은 가장 느린 OSS가 결정한다"를 "파이프라인 처리량은 가장 느린 stage가 결정하고, stage 속도와 상주 KV는 같은 노드의 저장 I/O에 영향을 받는다"로 확장한다.
 
 #### 3.8.5 ⑦ 이벤트 기반 재계획 (LLM 플래너)
 
 **정의**
 
-이벤트가 발생하면 현재 상태와 운영 정책을 입력받아 (P, M, S) 변경안을 생성하는 제어 모듈이다. N0에서 llama.cpp로 Qwen3-4B Q4_K_M을 실행한다. 생성된 변경안은 비용 모델 기반 검증기가 검사한 뒤 적용한다.
+이벤트가 발생하면 현재 상태와 운영 정책을 입력받아 (P, M, R, S) 변경안을 만드는 제어 모듈이다. N0에서 llama.cpp로 Qwen3-4B Q4_K_M을 실행한다. 변경안은 비용 모델 기반 검증기가 검사한 뒤 적용한다.
 
 **해결해야 하는 이유**
+1. **결정을 반복해야 한다.** 다음 이벤트마다 다시 정해야 한다.
+   - 적응 라운드
+   - 장애
+   - 부하 변화
+   - 정책 변경
+   - 컨텍스트 압축
+2. **이력이 없다.** 원 IFLustre의 로그 기반 결정은 새 어댑터·epoch에 쓸 수 없다.
+3. **운영 정책이 자연어이고 IoT 의미와 직결된다.** 예를 들면 다음과 같은 정책이다.
+   - "라인 3 우선"
+   - "교대 시작 10분 전 해당 라인 미리 준비"
+   - "점검 중인 설비는 수집 시점 prefill 중단"
 
-1. **결정을 반복해야 한다.** (P, M, S)는 한 번 정하고 끝나지 않는다. 다음 이벤트가 생길 때마다 다시 정해야 한다(D7).
-   - 적응 시간대 시작과 라운드 종료 (새 어댑터)
-   - 노드 장애와 복귀
-   - 요청 부하 변화와 SLO 위반
-   - 운영 정책 변경
-2. **이력이 없다.** 원 IFLustre의 분석기는 같은 애플리케이션 이름의 과거 실행 로그로 설정을 정한다. 새 어댑터 버전이나 새 모델에는 이력이 없다.
-3. **운영 정책이 자연어이다.** 운영 정책은 IoT 현장 운영자가 자연어로 표현한다. 예: "라인 3 질의를 우선 처리", "주간 근무 시간에는 체크포인트 복제 최소화", "야간에 적응 학습", "정기 점검 동안 N2 사용 금지". 이를 목적 함수 가중치와 제약으로 바꿔야 한다. 수동으로 바꾸는 것은 현장 운영자에게 부담이다.
-4. **변경 범위를 골라야 한다.** P 전체를 다시 계산하면 이동 비용이 크다. 특히 1GbE에서는 LG 하나(0.6GB)를 원격으로 옮기는 데 약 5초가 걸린다. M 일부나 S만 바꾸면 비용이 작지만 효과도 제한된다. 이벤트마다 어느 범위까지 바꿀지 선택해야 한다.
-5. **탐색 공간 밖의 조치가 있다.** 시간대 기반 미리 읽기, 적응 시간대 조정, 정비 일정에 맞춘 사전 재분할처럼 정책과 일정에 근거한 조치는 수치 탐색 공간에 넣기 어렵다.
+   이 정책들은 설비·시간 의미 정보와 바로 연결되어 상주 집합, 미리 읽기, prefill 배치 간격, 재생성 순서로 바뀌어야 한다.
+4. **변경 범위를 골라야 한다.** 1GbE에서 LG 하나를 원격으로 옮기는 데 약 5초가 걸린다.
+5. **탐색 공간 밖의 조치가 있다.** 시간대 기반 미리 읽기, 적응 시간대 조정, 정비 일정에 맞춘 사전 재분할이 그 예이다.
 
 **범위 한정**
-
-- 노드 5개 규모에서는 비용 모델 기반 탐색으로 (P, M)의 수치 최적해를 구할 수 있다(분할 후보 165개).
-- 따라서 플래너는 수치 최적화를 대체하지 않는다. 플래너의 역할은 다음 세 가지이다.
-  1. 운영 정책을 목적·제약으로 변환
+- 분할 후보는 165개라서 탐색으로 풀 수 있다. 플래너는 수치 최적화를 대체하지 않는다.
+- 플래너의 역할은 세 가지이다.
+  1. 정책을 목적·제약으로 변환
   2. 이벤트별 변경 범위 결정
   3. 탐색 공간 밖의 조치 제안
 - 수치 타당성은 검증기가 보장한다.
-- 노드 장애처럼 즉시 대응이 필요한 이벤트는 미리 계산한 대체 분할(P'_k)을 규칙으로 바로 적용한다. 플래너는 그 이후의 조정만 담당한다.
-- 평가에서는 탐색 기반(Search-only), 규칙 기반, LLM 단독(검증기 없음), LLM + 검증기를 직접 비교한다(4.5.2절 S6).
+- 장애는 미리 계산한 대체 분할을 규칙으로 즉시 적용한다.
+- 평가에서 Search-only, 규칙 기반, LLM-only와 직접 비교한다(S6).
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 7a | 상태 표현: telemetry를 LLM 입력 길이 안에서 요약 |
-| 7b | 출력 형식: 실행 가능한 조치로 제한 |
-| 7c | 정확성: 잘못된 계획의 적용 방지 |
-| 7d | 비용: 플래너 실행이 N0의 메모리(약 3GB)와 GPU를 사용 |
-| 7e | 가용성: N0가 장애 대체 stage가 되면 플래너를 내려야 함 |
+| 7a | 상태 표현 |
+| 7b | 출력 형식 |
+| 7c | 정확성 |
+| 7d | 비용 (N0 메모리 약 3GB) |
+| 7e | 가용성 (N0가 대체 stage가 되면 플래너를 내림) |
 
 **해결 방법**
-
 1. **입력 (7a)**
-   - JSON 상태 요약(1–2k 토큰): 노드별 메모리·KV 사용량, PSI, CPU/GPU/EMC 사용률, NIC 사용률, OST별 부하와 사용량, stage latency, 현재 P, 객체 배치 요약, 학습 진행 상태, 이벤트 내용
+   - JSON 상태 요약(1–2k 토큰)
    - 운영 정책 텍스트
-   - 모델 config 요약(LG 수, LG별 크기, KV 크기)
-   - 관찰 규칙 요약(O1–O6 결과를 규칙 문장으로 정리)
-   - 정적 부분(규칙, 스키마, 모델 정보)은 llama.cpp의 prompt cache로 재사용해 prefill 시간을 줄인다.
-   - 예시는 부록 B에 있다.
-2. **출력 (7b)**
-   - JSON 스키마로 제한한 조치 목록이다. llama.cpp의 JSON schema 제약 디코딩을 쓴다.
-   - 조치 유형:
+   - 설비 목록과 의미 속성(라인, 우선순위, 교대 일정)
+   - 모델 config 요약
+   - 관찰 규칙 요약
+   - 정적 부분은 llama.cpp prompt cache로 재사용한다.
+2. **출력 (7b).** JSON 스키마로 제한한 조치 목록이다.
 
-     | 조치 | 내용 |
-     |---|---|
-     | `repartition` | 새 분할 |
-     | `set_layout` | 디렉터리·파일 레이아웃 |
-     | `migrate` | 파일 이동 |
-     | `mirror` | 복제 생성·삭제 |
-     | `set_tbf` | TBF 규칙 |
-     | `schedule_replication` | 체크포인트 복제 시점·속도 |
-     | `set_adapt_window` | 적응 시간대·학습 비율 |
-     | `pause_adapt` / `resume_adapt` | 학습 정지·재개 |
-     | `prefetch_prefix` | 공통 prefix 미리 읽기 |
-     | `pin_prefix` | 공통 prefix 고정 |
-     | `set_cache_limit` | 캐시 상한 |
-     | `set_objective` | 목적 가중치·제약 갱신 |
+   | 조치 | 내용 |
+   |---|---|
+   | `repartition` | 새 분할 |
+   | `set_layout` | 레이아웃 |
+   | `migrate` | 파일 이동 |
+   | `mirror` | 복제 |
+   | `set_tbf` | TBF 규칙 |
+   | `set_cache_limit` | 캐시 상한 |
+   | `set_residency` | stage별 상주 컨텍스트 |
+   | `prefetch_context` | 컨텍스트 미리 읽기 |
+   | `set_ingest_batch` | 설비별 수집 시점 prefill 배치 간격 |
+   | `pause_ingest_prefill` | 수집 시점 prefill 중단 |
+   | `schedule_compaction` | 압축 시점 |
+   | `schedule_regeneration` | 재생성 순서·시점 |
+   | `schedule_replication` | 복제 시점·속도 |
+   | `set_adapt_window` | 적응 시간대·비율 |
+   | `pause_adapt` | 학습 정지 |
+   | `set_objective` | 목적 가중치 |
 
 3. **propose-verify 루프 (7c)**
-   1. 플래너가 후보 계획 1–3개를 생성한다.
-   2. 검증기가 제약(메모리, OST 용량, 연속 분할, 정책 금지 사항)을 검사한다.
-   3. 검증기가 비용 모델로 예상 TTFT p99, 처리량, 이동 바이트, 라운드 완료 시간을 계산한다.
-   4. 통과한 후보 중 목적값이 가장 좋은 계획을 적용한다.
-   5. 모두 실패하면 실패 사유를 입력에 추가해 재요청한다(최대 2회).
-   6. 그래도 실패하면 규칙 기반 정책(3.9.7절의 확장 IFLustre 정책)을 적용한다.
-4. **호출 빈도 (7d)**
-   - 플래너는 이벤트가 발생할 때만 호출한다. 요청 단위 결정은 플래너가 만든 계획 테이블을 조회하는 fast path로 처리한다.
-   - 이벤트가 연달아 발생하면 일정 시간(예: 10초) 동안 모아서 한 번 호출한다.
-   - 예상 결정 지연은 10–20초이다(Orin Nano에서 4B Q4 모델의 prefill과 decode 속도 기준 추정, O6/S6에서 측정).
+   1. 플래너가 후보 1–3개를 만든다.
+   2. 검증기가 제약을 검사하고, 비용 모델로 TTFT, 처리량, 최신성, 이동 바이트를 계산한다.
+   3. 통과한 최선 후보를 적용한다.
+   4. 모두 실패하면 사유를 넣어 재요청한다(최대 2회).
+   5. 그래도 실패하면 규칙 기반 정책을 적용한다.
+4. **호출 (7d)**
+   - 이벤트 시에만 호출하며, 10초 안의 이벤트는 모아서 한 번 호출한다.
+   - 요청 단위 결정은 계획 테이블을 조회한다.
+   - 결정 지연은 10–20초로 추정한다.
 5. **가용성 (7e)**
-   - N0가 장애 대체 stage를 맡으면 플래너 프로세스를 내리고 규칙 기반 정책으로 운영한다.
-   - 장애 노드가 복귀해 N0가 stage를 반납하면 플래너를 다시 올린다.
-   - 이 전환 자체를 이벤트(E5, E8)로 처리한다.
+   - N0가 대체 stage를 맡는 동안에는 규칙 기반으로 운영한다.
+   - 반납하면 플래너를 다시 올린다.
 
 **검증 방법**
-
-| 항목 | 내용 |
-|---|---|
-| 비교 대상 | Search-only, 규칙 기반, LLM-only, LLM + 검증기 |
-| 지표 | SLO 달성률, 이동 바이트, 결정 지연, 정책 준수율, 유효하지 않은 계획 비율 |
-| 처음 보는 시나리오 | 새 모델 크기, 새 정책 문장, 새 장애 패턴에서의 결과 |
-| 플래너 모델 크기 영향 | Qwen3-0.6B / 1.7B / 4B 비교 |
-| 플래너 비용 | N0 메모리·전력, 결정 지연 |
+- 비교 대상: Search-only, 규칙, LLM-only, LLM + 검증기
+- 지표: SLO 달성률, 최신성, 이동 바이트, 결정 지연, 정책 준수율, 유효하지 않은 계획 비율
+- 처음 보는 시나리오에서의 결과
+- 플래너 모델 크기(0.6B/1.7B/4B) 비교
 
 **관련 연구와의 차이**
 
-ION, STELLAR, GPTuner, λ-Tune은 애플리케이션이나 데이터베이스 하나의 설정을 반복 실행으로 오프라인 탐색한다. 본 플래너는 다음 점에서 다르다.
-- 서비스 중에 이벤트마다 온라인으로 재계획한다.
-- 비용 모델 검증기로 실행 전에 결과를 확인한다.
-- 8GB 엣지 장치 위에서 메모리 예산 안에서 실행된다.
+ION, STELLAR 등은 오프라인 단일 대상 튜닝이다. 본 플래너는 온라인, 검증기 결합, 8GB 장치 실행이며, IoT 의미 정책을 저장 결정으로 바꾼다.
 
 **원 IFLustre와의 관계**
 
-원 Application Analyzer(로그 기반 설정 결정과 ML 예측)를 두 부분으로 나눈다. 수치 예측은 비용 모델이 맡고, 결정은 플래너와 검증기가 맡는다.
+Application Analyzer를 비용 모델(수치 예측)과 플래너·검증기(결정)로 나눈다.
 
 ### 3.9 통합 구성
 
 #### 3.9.1 다섯 요소가 하나의 시스템이어야 하는 이유
 
-다섯 요소는 따로 동작하는 기능이 아니다. 다음 다섯 가지 관계로 묶인다.
-
-1. **같은 라이프사이클.** W1–W3는 데이터를 주고받는 하나의 반복 과정이다. N0가 만든 학습 샘플로 서빙 파이프라인(⑧)이 학습하고(⑤), 그 결과 어댑터로 서빙(⑧, ②)한다. 서빙 로그는 다시 W1 데이터가 된다.
-2. **같은 메모리.** Orin Nano 8GB에서는 서빙 가중치(⑧), KV(②), 학습 상태(⑤), Lustre 캐시(③)가 한 노드의 7.4GiB 안에서 경쟁한다. 한 요소의 메모리를 늘리면 다른 요소의 메모리가 줄어든다.
-3. **같은 자원.** 모든 서빙 노드가 저장과 연산을 함께 수행한다. ⑧의 가중치 I/O, ②의 KV I/O, ⑤의 체크포인트 I/O가 모두 같은 노드들의 CPU, 메모리 대역폭, 1GbE를 사용한다(③).
-4. **같은 단위.** 가중치, KV, 어댑터, 체크포인트가 모두 LG 단위로 나뉜다. 그래서 ⑧의 분할 P 하나가 네 객체의 소비 노드를 동시에 정한다.
-5. **같은 비용 모델.** 모든 결정이 하나의 식(3.9.3절)의 서로 다른 항을 바꾼다. ⑦은 이 식을 기준으로 이벤트마다 결정을 갱신한다.
+1. **같은 라이프사이클.**
+   - W1 데이터가 설비 컨텍스트와 KV가 된다(②).
+   - 그 KV로 서빙한다(⑧).
+   - 학습(⑤)은 어댑터를 바꾸고 KV 재생성을 요구한다(②).
+   - 서빙 로그는 다시 W1 데이터가 된다.
+2. **같은 메모리.** 가중치(⑧), 상주 KV(②), 학습 상태(⑤), 캐시(③)가 한 노드의 7.4GiB에서 경쟁한다.
+3. **같은 자원.** 가중치 I/O, 질의·수집 시점 KV I/O, 체크포인트·재생성·압축 I/O가 모두 같은 노드의 CPU, 메모리 대역폭, 1GbE를 쓴다(③).
+4. **같은 단위.** 가중치, KV, 경계 activation, 어댑터, 체크포인트가 모두 LG 단위이다. 분할 P 하나가 모든 객체의 소비 노드를 정한다.
+5. **같은 이름 체계.** 모든 KV·activation 객체가 내용 주소로 식별된다. 재분할(⑧), 복제(⑤), 장애 대응이 이름 변경 없이 위치 변경으로만 처리된다.
+6. **같은 비용 모델.** 모든 결정이 하나의 식(3.9.3절)의 서로 다른 항을 바꾸고, ⑦이 이벤트마다 결정을 갱신한다.
 
 #### 3.9.2 의존 관계
 
 ```
-                     ③ 저장-연산 간섭 측정
-                             │ β (감속), cache (메모리 점유)
-                             ▼
- ┌────────────────────── 비용 모델 T_k, mem_k ─────────────────────┐
- │                                                                  │
- │   ⑧ 분할 P ───────▶ 모든 LG 객체의 소비 노드와 대체 노드 결정        │
- │       │                    │                     │               │
- │       ▼                    ▼                     ▼               │
- │   가중치 배치          ② KV 배치               ⑤ 체크포인트 저장·복제 │
- │   OST0 mirror         (서빙 중 지속 I/O,       어댑터 버전 전환       │
- │   (로드·복구 I/O)      KV 메모리 vs 저장)       (버스트 I/O, 학습 메모리)│
- └──────────────────────────────┬───────────────────────────────────┘
-                                │ L_k (노드별 I/O 부하), U_k (NIC 사용률), 이벤트
-                                ▼
-                  ⑦ 이벤트 발생 시 (P, M, S) 재결정
+                          ③ 저장-연산 간섭 측정
+                                  │ β (감속), cache (메모리 점유)
+                                  ▼
+ ┌───────────────────────── 비용 모델 T_k, mem_k ──────────────────────────┐
+ │                                                                          │
+ │  ⑧ 분할 P ──▶ 모든 LG 객체의 소비 노드·대체 노드                           │
+ │      │                 │                            │                   │
+ │      ▼                 ▼                            ▼                   │
+ │  가중치 배치      ② content-addressed KV 저장소    ⑤ 적응 학습             │
+ │  OST0 mirror      이름=내용, 위치=비용 모델,         LoRA 범위 → KV 유효성    │
+ │                   정책=IoT 의미                     체크포인트·재생성 I/O    │
+ │                   (수집 시점 prefill, 상주, 압축)                          │
+ └──────────────────────────────────┬───────────────────────────────────────┘
+                                    │ L_k, U_k, 이벤트
+                                    ▼
+                    ⑦ 이벤트 발생 시 (P, M, R, S) 재결정
 ```
 
 | 요소 | 다른 요소에 제공 | 다른 요소에서 받음 |
 |---|---|---|
-| ③ | β, cache 함수 (모든 배치 결정의 기준) | 측정 대상 I/O 패턴 (⑧, ②, ⑤) |
-| ⑧ | P (모든 LG 객체의 소비 노드), 대체 분할, 가중치 로드 부하 | β (③), 재분할 지시 (⑦) |
-| ② | 서빙 중 지속 I/O 부하, TTFT, KV 메모리 사용량 | P (⑧), β·cache (③), 배치·미리 읽기 지시 (⑦) |
-| ⑤ | 버스트 I/O 부하, 학습 메모리, 새 어댑터 이벤트 | P (⑧), β (③), 시점·속도·시간대 지시 (⑦) |
-| ⑦ | (P, M, S) 갱신 | β·cache (③), 현재 P (⑧), 부하 (②, ⑤), 운영 정책 |
+| ③ | β, cache 함수 | 측정 대상 I/O 패턴 |
+| ⑧ | P, 대체 분할, 가중치 로드 부하 | β, 재분할 지시 |
+| ② | 수집 시점·질의 시점 KV I/O, 상주 메모리, TTFT, 최신성 | P, β·cache, 어댑터 범위(⑤), 상주·배치 간격·압축 지시(⑦) |
+| ⑤ | 학습 연산·메모리(N4), 체크포인트·재생성 I/O, 새 어댑터 이벤트 | P, β, 시점·속도 지시 |
+| ⑦ | (P, M, R, S) 갱신 | 전 요소의 상태, 운영 정책, 설비 의미 정보 |
 
 #### 3.9.3 비용 모델
 
 ```
-T_k   = C_k(P) · (1 + β_k(L_k)) + A_k(P, U_k) + F_k(M, U_k)
+T_k   = C_k(P, S) · (1 + β_k(L_k)) + A_k(P, U_k) + F_k(M, R, U_k)
 
-Throughput = 1 / max_k T_k
-TTFT       = min(prefill 재계산 시간, KV 로드 시간) + 파이프라인 전달 지연
-mem_k      = W_k(P) + KV_k + R_k + cache_k(L_k, limit_k) + Train_k(S)  ≤  MemCap_k − margin
-U_k        = (activation + 원격 KV + 원격 가중치 + 체크포인트 복제 + 재배치) 전송량 / NIC 대역폭
+Throughput  = 1 / max_k T_k
+TTFT(e)     = max_k load_k(e) + tail_prefill(e) + 전달 지연
+              load_k(e)   : stage k에서 컨텍스트 e가 상주하지 않으면 KV 읽기 시간, 상주하면 0
+              tail_prefill: 아직 수집 시점 prefill되지 않은 레코드 + 질문의 prefill 시간
+mem_k = W_k(P) + KV_k(R) + R_k + cache_k(L_k, limit_k) + Train_k(S)  ≤  MemCap_k − margin
+U_k   = (activation + 원격 KV + 원격 가중치 + 복제 + 재배치) 전송량 / NIC 대역폭
+L_k   = 서빙 KV 읽기 + 수집 시점 prefill의 컨텍스트 읽기·KV 쓰기 + 재생성 + 압축 + 체크포인트 + 수집 + 재배치
+C_k   = 서빙 연산 + 수집 시점 prefill 연산 + 재생성 연산 + 학습 연산 (S가 시점과 비율을 정함)
 ```
 
-| 기호 | 의미 | 측정 또는 계산 방법 | 관련 요소 |
-|---|---|---|---|
-| C_k(P) | stage k의 순수 연산 시간 | LG별 연산 시간 c_i(prefill/decode/학습)를 오프라인에서 1회 프로파일링한 뒤 합산. 마지막 stage는 출력 head 연산 추가 | ⑧ |
-| L_k | 노드 k가 처리하는 저장 I/O 부하 (서버 측 + 로컬 client) | 배치 M과 객체별 접근률(KV 쓰기·재사용률, 체크포인트 크기·주기, 복제량, 수집률, 재배치량)로 계산하고, 실행 중 jobstats로 보정 | ②, ⑤, W1 |
-| β_k(L_k) | 저장 I/O 부하에 따른 연산 감속 비율 (CPU와 메모리 대역폭 효과 포함) | O2 측정 후 회귀 (I/O 유형, LLM 단계, 격리 설정, 전력 모드별) | ③ |
-| A_k(P, U_k) | stage 경계 activation 전달 시간 | 전달량 / (NIC 대역폭 × (1 − 다른 전송의 점유율)) | ⑧ |
-| F_k(M, U_k) | 연산과 겹치지 않는 KV 읽기 대기 시간 | KV 크기, 경로(로컬/원격), OST 부하, NIC 점유율 (O1) | ② |
-| W_k(P) | 노드 k의 가중치 메모리 | LG 크기 합 + 임베딩 | ⑧ |
-| KV_k | 노드 k의 KV 메모리 | 남는 메모리로 결정되며, 작을수록 저장 계층 I/O 증가 | ② |
-| R_k | 런타임과 OS 메모리 | 측정값 | – |
-| cache_k | Lustre와 page cache 점유량 | O2, O4 측정 후 회귀 (캐시 상한과 I/O 부하의 함수) | ③ |
-| Train_k(S) | 공동 학습 메모리 | LoRA 상태 + 활성화 | ⑤ |
+| 기호 | 의미 | 측정·계산 |
+|---|---|---|
+| C_k | stage k 연산 시간 | LG별 연산 프로파일(prefill, decode, 학습) 합산, 마지막 stage는 head 추가 |
+| β_k | 저장 I/O에 따른 감속 | O2 회귀 |
+| A_k | activation 전달 시간 | 전달량 / 유효 NIC 대역폭 |
+| F_k | 연산과 겹치지 않는 KV 읽기 대기 | 경로, OST 부하, NIC 점유 (O1) |
+| cache_k | 캐시 점유 | O2, O4 회귀 |
+| KV_k(R) | 상주 KV 메모리 | 상주 집합 × 컨텍스트 크기 |
 
-- 원 IFLustre는 이 모델에서 C_k=0, β=0, A_k=0이고, 메모리 제약 없이 OSS 사이의 부하 L_k만 다루는 경우에 해당한다.
-- β가 작게 측정되더라도 모델은 그대로 쓸 수 있다. 이 경우 메모리 제약(cache_k → KV_k)과 네트워크 항(A_k, F_k)의 비중이 커진다.
+- 원 IFLustre는 C=0, β=0, A=0, 메모리 제약 없음, R·S 중 runtime 대기만 있는 특수한 경우이다.
+- β가 작게 측정되면 메모리(cache → R → TTFT)와 네트워크 항이 주로 작동한다.
 
 #### 3.9.4 로컬 배치와 원격 배치의 선택
 
-| 배치 | 접근 시간 (stage KV 288MiB 기준) | 네트워크 | 부하가 증가하는 노드 |
+| 배치 | 접근 시간 (stage KV 288MiB) | 네트워크 | 부하 증가 노드 |
 |---|---|---|---|
-| stage k의 데이터를 OST k에 둠 | 약 0.1–0.3초 | 사용하지 않음 | Node k (β_k, cache_k 증가) |
-| stage k의 데이터를 다른 stage 노드 OST j에 둠 | 약 2.6초 이상 | U_k, U_j 증가 | Node j (β_j, cache_j 증가, NIC 속도로 상한) |
-| stage k의 데이터를 OST0에 둠 | 약 2.6초 이상 | U_k, U_0 증가 | N0 (서빙 연산 없음, 플래너·수집과 공유) |
+| 소비 노드 OST | 약 0.1–0.3초 | 사용 안 함 | 소비 노드 (β, cache) |
+| 다른 stage 노드 OST | 약 2.6초 이상 | 양쪽 NIC | 다른 stage 노드 (NIC 속도로 상한) |
+| OST0 | 약 2.6초 이상 | 양쪽 NIC | N0 (서빙 연산 없음) |
 
-- 비용 모델은 각 경우의 max_k T_k와 메모리 제약을 비교해 고른다.
-- 1GbE에서는 원격 접근이 10배 이상 느리므로 지연 민감 객체(KV)는 대부분 로컬이 유리하다.
-- 반면 장애 내구성이 필요한 객체(체크포인트, 어댑터)와 지연 여유가 있는 객체(가중치 mirror)는 OST0이 유리하다.
-- 노드별 연산·메모리 여유는 요청 부하와 학습 상태에 따라 계속 바뀌므로, 같은 객체라도 시점에 따라 선택이 달라진다.
+- **지연 민감 객체(KV pack):** 대부분 로컬이 유리하다.
+- **내구성 객체(mirror, 체크포인트, 어댑터):** OST0가 유리하다.
+- **병목 stage 노드의 새 pack:** 비용 모델 비교로 원격이 선택될 수 있다.
 
 #### 3.9.5 시스템 아키텍처
 
 ```
-┌──────────────────────────── N0: Control plane ────────────────────────────┐
-│                                                                            │
-│   Telemetry Aggregator ─▶ Cost Model ─▶ LLM Planner (llama.cpp) ⇄ Verifier  │
-│            ▲                                   ▲                  │        │
-│            │                           운영 정책(텍스트)             ▼        │
-│            │                                                  Executor      │
-│   Ingest Writer (W1)    Sample Builder (W2 샘플)    Lustre MGS/MDS, OST0     │
-└────────────┼───────────────────────────────────────────────────┼──────────┘
-             │ telemetry (1초 주기)                                 │ 계획 테이블, lfs/lctl 명령
-┌────────────┴────────────── N1–N4: Data plane ─────────────────────▼──────────┐
-│  Telemetry Agent    Stage Runtime (서빙 + 공동 LoRA 학습)    KV Manager          │
-│  Weight Loader      Adapter Manager (버전 전환)      Checkpoint Manager (3단계) │
-│  place() 라이브러리 (모든 I/O가 거치는 공통 경로)                                 │
-│  Lustre client      OSS/OST                                                    │
-└────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────── N0: Control plane ──────────────────────────────┐
+│ Telemetry Aggregator ─▶ Cost Model ─▶ LLM Planner (llama.cpp) ⇄ Verifier        │
+│                                            ▲                       │           │
+│                                     운영 정책·설비 의미 정보           ▼           │
+│                                                                Executor         │
+│ Ingest Writer (W1)  Context Builder  Prefill Scheduler  Compactor  Sample Builder│
+│ Lustre MGS/MDS, OST0, 전역 KV 인덱스(공유 prefix)                                 │
+└───────────────┬──────────────────────────────────────────────────┬────────────┘
+                │ telemetry, prefill·재생성 작업                       │ 계획 테이블, lfs/lctl
+┌───────────────┴────────────────── N1–N4: Data plane ────────────────▼────────────┐
+│ Stage Runtime (서빙, 수집 시점 prefill, 재생성, N4: LoRA 학습)                     │
+│ KV Store (주소 계산, pack 쓰기·봉인, 조회·검증, 상주 관리, 캐시 해제)                  │
+│ Activation Store (경계 activation)   Weight Loader   Adapter Manager              │
+│ Checkpoint Manager (N4)   Telemetry Agent   place()                               │
+│ Lustre client   OSS/OST                                                           │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| 모듈 | 위치 | 입력 | 출력 |
-|---|---|---|---|
-| Telemetry Agent | 전 노드 | tegrastats, `/proc`, PSI, `lctl get_param` | 노드 상태 (1초 주기) |
-| Telemetry Aggregator | N0 | 노드 상태 | 상태 요약 JSON, 이벤트 감지 |
-| Cost Model | N0 | 상태, LG 프로파일, β, cache 함수, 접근률 | 후보 계획별 T_k, TTFT, mem_k, 이동 바이트 |
-| LLM Planner | N0 | 상태 요약, 운영 정책, 이벤트 | 후보 계획 (JSON 조치 목록) |
-| Verifier | N0 | 후보 계획 | 선택된 계획 또는 재요청 사유 |
-| Executor | N0 | 선택된 계획 | `lfs setstripe/migrate/mirror`, `lctl set_param`(TBF, 캐시 상한), 계획 테이블 배포 |
-| Ingest Writer | N0 | IoT 데이터셋 | IoT 파일 쓰기 |
-| Sample Builder | N0 | IoT 데이터 | 학습 샘플 |
-| place() | 전 노드 | 객체 종류, LG, 생성 노드, 소비 노드, 크기 | 레이아웃 (계획 테이블 조회) |
-| Stage Runtime | N1–N4 | LG 가중치, 어댑터, KV, 학습 샘플 | 추론 결과, activation, gradient |
-| KV Manager | N1–N4 | prefix 해시, 계획 테이블 | KV 읽기/쓰기, 재계산 vs 읽기 선택, 캐시 해제 |
-| Weight Loader | N1–N4 (장애 시 N0) | LG 파일 | 메모리 적재 |
-| Adapter Manager | N1–N4 | LG 어댑터 | 버전 확정, 2단계 전환 |
-| Checkpoint Manager | N1–N4 | LoRA 상태 | 메모리 스냅샷, 로컬 쓰기, 원격 복제 |
+| 모듈 | 위치 | 역할 |
+|---|---|---|
+| Context Builder | N0 | 레코드 토큰화, 컨텍스트 체인 유지, chunk 봉인 판정 |
+| Prefill Scheduler | N0 | 설비별 배치 간격에 따라 수집 시점 prefill 작업 생성 (낮은 우선순위) |
+| Compactor | N0 | 한계 도달 시 규칙 기반 압축, 새 epoch 생성 |
+| KV Store | N1–N4 | 주소 계산(chain, key), pack append·봉인, 조회(경로 계산 + 헤더 검증, 공유 prefix는 전역 인덱스), 상주 집합 관리, page cache 해제 |
+| Activation Store | LG9 앞 stage(쓰기), LG9 stage(읽기) | 경계 activation 객체 |
+| 그 밖의 모듈 | – | 이전 설계와 같음 (Telemetry, Cost Model, Planner, Verifier, Executor, Weight Loader, Adapter Manager, Checkpoint Manager, place()) |
 
 **처리 경로**
 
-| 경로 | 용도 | 수행 주체 | 지연 |
-|---|---|---|---|
-| Slow path | 이벤트 발생 시 재계획 | Planner, Verifier, Executor | 10–20초 (추정) |
-| Rule path | 장애처럼 즉시 대응이 필요한 이벤트 | Executor (미리 계산한 대체 분할 적용) | 수 초 |
-| Fast path | 요청·chunk 단위 배치 | place()가 계획 테이블을 조회 | 마이크로초~밀리초 |
+| 경로 | 용도 | 지연 |
+|---|---|---|
+| Slow path | 이벤트 시 재계획 (Planner, Verifier, Executor) | 10–20초 (추정) |
+| Rule path | 장애 등 즉시 대응 (미리 계산한 대체 분할) | 수 초 |
+| Background path | 수집 시점 prefill, 재생성, 압축, 복제 (스케줄러, TBF) | 분 단위 |
+| Fast path | 요청·chunk 단위 배치와 조회 (place(), KV Store) | 마이크로초–밀리초 |
 
 #### 3.9.6 이벤트별 동작
 
-| ID | 이벤트 | 트리거 | 경로 | 수행 내용 | Lustre 조치 |
-|---|---|---|---|---|---|
-| E0 | 시작 | 클러스터 기동 | Slow | 초기 P 결정, LG 배치, OST0 전체 mirror, 노드별 대체 분할 P'_k·P''_k 계산, 캐시 상한 설정, 가중치 로드 | `setstripe -i`, `mirror`, `set_param` |
-| E1 | 요청 도착 | 질의 | Fast | prefix 확인, 읽기·재계산 선택, 새 KV chunk를 계획 테이블 위치에 append | 디렉터리 default layout |
-| E2 | 적응 시간대 시작 | 일정, 데이터 누적량, 저부하 예측 | Slow | 학습 비율, 체크포인트 복제 위치·속도, 복제 시간대 결정 | TBF 규칙 설정 |
-| E3 | 체크포인트 | 학습 step | Fast | 메모리 스냅샷 → 로컬 쓰기 → 복제 대기열 등록 | – |
-| E3' | 복제 실행 | 저부하 구간 또는 간격 상한 도달 | Fast | 원격 mirror 추가 | `mirror extend`, TBF |
-| E4 | 라운드 종료 | 학습 목표 step 도달 | Slow (경량) | 어댑터 확정, OST0 mirror, 2단계 버전 전환 | `mirror extend` |
-| E5 | 노드 장애 | heartbeat 실패 | Rule → Slow | P'_k 적용: N0가 플래너를 내리고 대체 stage로 OST0 mirror에서 로드. 장애 노드 LG의 KV는 재계산 또는 공통 prefix mirror 읽기. 이후 정책에 따라 P''_k 전환 검토 | mirror 읽기 |
-| E6 | 부하 변화·SLO 위반 | telemetry 임계값 | Slow | 병목 stage 노드의 I/O를 다른 노드로 이동, TBF 조정, 캐시 상한 조정, 필요하면 부분 재분할 | `migrate`, TBF, `set_param` |
-| E7 | 정책 변경 | 운영자 입력 | Slow | 목적 가중치와 제약 갱신 후 재계획 | 계획에 따름 |
-| E8 | 노드 복귀 | heartbeat 회복 | Slow | N0가 stage를 반납하고 플래너를 다시 올림. 복귀 노드의 데이터 상태 확인, 필요한 파일 재동기화 | `mirror resync`, `migrate` |
+| ID | 이벤트 | 경로 | 수행 내용 |
+|---|---|---|---|
+| E0 | 시작 | Slow | 초기 P, LG 배치, OST0 mirror, 대체 분할, 캐시 상한, 공유 prefix KV 생성 |
+| E1 | 질의 도착 | Fast | 체인 해시 계산 → stage별 상주 확인 → 미상주 pack 읽기 → 꼬리 + 질문 prefill → 세션 체인 생성 |
+| E2 | 레코드 도착 | Background | 컨텍스트에 이어 붙임 → 봉인 가능 chunk가 생기면 대기열에 등록 |
+| E3 | prefill 배치 시점 | Background | 컨텍스트 KV 로드(미상주 시) → 새 chunk 계산 → stage별 pack append, 경계 activation 저장 |
+| E4 | 컨텍스트 한계 | Background | 규칙 압축 → 새 epoch 컨텍스트 → 공유 prefix 재사용, 나머지 KV 생성 → 이전 epoch 수거 예약 |
+| E5 | 적응 시간대 시작 | Slow | 학습 비율, 복제 위치·속도 결정 |
+| E6 | 체크포인트 | Background | 스냅샷 → 로컬 쓰기 → 지연 복제 |
+| E7 | 라운드 종료 | Slow (경량) | 어댑터 확정·mirror → 컨텍스트별 LG9–11 KV 재생성 일정 → 재생성 완료 컨텍스트부터 새 버전 서빙 |
+| E8 | 노드 장애 | Rule → Slow | P'_k 적용(N0 대체, OST0 mirror에서 로드), 장애 노드 LG의 미복제 pack은 재계산 |
+| E9 | 부하 변화·SLO 위반 | Slow | 상주 집합·배치 간격·캐시 상한·TBF 조정, 필요 시 부분 재분할 |
+| E10 | 정책 변경 | Slow | 목적·제약 갱신 후 재계획 |
+| E11 | 노드 복귀 | Slow | N0 stage 반납, 플래너 재시작, `mirror resync` |
 
 #### 3.9.7 원 IFLustre 정책과의 대응
 
-| 원 IFLustre 구성 | 확장 내용 |
+| 원 IFLustre | CoStripe |
 |---|---|
-| Application Analyzer (로그 기반 stripe 결정, ML 예측) | Cost Model(LG 프로파일, β, cache 함수, 접근률) + LLM Planner(이벤트 기반 재계획) + Verifier |
-| Interference-free allocation | 연산 부하가 없는 노드(N0)의 OST를 내구성 객체(mirror, 복제)에 사용 |
-| Throughput-aware allocation | 비용 모델에서 max_k T_k 증가와 메모리 감소가 최소인 OST를 선택 |
-| Runtime-aware allocation | 체크포인트 복제·재배치 I/O의 시점 지연과 TBF 속도 제한, 적응 시간대 조정 |
-| Read-aware relocation | 재분할·장애 복귀 시 LG 단위 migrate/mirror, 체크포인트·어댑터는 생성 시점 로컬 저장 + 지연 복제 |
-| stripe count 결정 | 1GbE에서는 stripe count 1 + 소비 노드 배치 (원격 stripe가 가장 느린 stripe가 되므로) |
-| 간섭 대상: OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 (메모리 용량, CPU, 메모리 대역폭, 네트워크) |
-| 결정 시점: 애플리케이션 시작 | 이벤트마다 |
-
-위 정책들을 플래너 없이 규칙으로 적용한 것을 "제안 기법(규칙)" 구성으로 평가한다. 이 구성은 플래너가 실패하거나 내려간 동안의 fallback으로도 쓰인다.
+| Application Analyzer | Cost Model + LLM Planner + Verifier |
+| Interference-free allocation | 연산 부하가 없는 노드(N0)의 OST를 내구성 객체에 사용 |
+| Throughput-aware allocation | max_k T_k 증가와 메모리 감소가 최소인 OST 선택 |
+| Runtime-aware allocation | 수집 시점 prefill·재생성·압축·복제 I/O의 시점 지연과 TBF 속도 제한 |
+| Read-aware relocation | 의미 기반 상주·미리 읽기, LG 단위 migrate/mirror |
+| 소파일 관찰 | KV pack 설계 |
+| stripe count 결정 | 1GbE에서는 stripe count 1 + 소비 노드 배치 |
+| 파일 경로 기반 식별 | 내용 주소 기반 식별, 의미 정보 기반 정책 |
+| 간섭: OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 |
 
 #### 3.9.8 실행 예시
 
 ```
-t0      E0  P = {N1: LG0–2+embed, N2: LG3–5, N3: LG6–8, N4: LG9–11+embed(head)}
-            weights/lg{i} → 소비 노드 OST, 임베딩 → OST1 + mirror OST4
-            전체 가중치 mirror → OST0
-            client 캐시 상한 512MB 설정
-t0~     E1  매뉴얼 prefix KV는 pin + OST0 mirror, 세션 KV는 소비 노드 OST에 append
-t1      E2  적응 시간대 시작 (요청률 예측이 낮은 구간)
-            학습 비율 30%, 체크포인트 복제 대상 OST0, TBF 상한 = 비용 모델 계산값
-t1~t2   E3  25 step마다 메모리 스냅샷 → 로컬 쓰기
-        E3' 요청이 적은 구간에 OST0으로 복제
-t2      E4  라운드 종료 → adapters/v(n+1)/lg{i} 확정 (로컬) + OST0 mirror
-            → 4개 stage 확정 완료 → 동시 전환
-t3      E5  N3 장애 → P'_3 적용
-            → N0: 플래너 종료, stage 3 런타임 시작, OST0에서 lg6–8 로드
-            → lg6–8의 KV: 공통 prefix는 OST0 mirror에서 읽기, 세션 KV는 재계산
-            → 체크포인트 r(n+1)의 stage 3 부분은 OST0 복제본에서 학습 재개
-t4      E6  N2 stage가 병목 (PSI 상승) → N2 OST로 가던 KV 쓰기 일부를 N0 OST로 변경, 캐시 상한 축소
-t5      E8  N3 복귀 → 저부하 구간에 N3로 stage 3 반납, N0 플래너 재시작
-            → N3 OST의 LG 파일 상태 확인, 필요 시 `mirror resync`
+t0      E0   P = {N1: LG0–2+embed, N2: LG3–5, N3: LG6–8, N4: LG9–11+head}
+             라인 1–4의 [지시문][매뉴얼] KV 생성 → 공유 pack (OST0 mirror)
+t0~     E2   설비 8개의 레코드가 10초마다 컨텍스트에 이어 붙음
+        E3   5분마다 설비별 새 chunk를 수집 시점 prefill → pack append, 경계 activation 저장
+        E1   질의: 상주 stage는 메모리, 미상주 stage는 로컬 pack 읽기 → 꼬리 + 질문만 prefill
+t1      E9   교대 시작 10분 전: 정책에 따라 라인 2 컨텍스트를 전 stage에 함께 상주시키도록 조정
+t2      E4   설비 L1-A 컨텍스트 8k 도달 → 규칙 압축 → epoch 1 생성 (공유 prefix 재사용)
+t3      E5–E6  야간 적응 시간대: N4에서 LG9–11 LoRA 학습, 25 step마다 체크포인트 → OST0 지연 복제
+t4      E7   어댑터 v8 확정 → 설비별 LG9–11 KV를 경계 activation에서 재생성 (질의 많은 설비부터)
+             → 재생성 완료 설비부터 v8로 서빙, 나머지는 v7
+t5      E8   N3 장애 → N0가 플래너를 내리고 LG6–8 담당, OST0 mirror에서 가중치·봉인 pack 로드
+             → 미복제 열린 pack의 chunk는 재계산
+t6      E11  N3 복귀 → 저부하 구간에 LG6–8 반납, 플래너 재시작
 ```
 
 #### 3.9.9 요소를 제거했을 때의 결과
 
 | 제거 요소 | 결과 |
 |---|---|
-| ⑧ | LG를 노드에 나누는 분할이 없으므로 소비 노드 기준 배치가 성립하지 않는다. FP16 모델을 올릴 수 없다. |
-| ② | 노드당 KV 공간(약 1.5GB)을 넘는 세션은 매번 prefill을 다시 계산해야 한다. 서빙 중 I/O가 거의 없어 간섭은 가중치 로드 시점에만 생긴다. |
-| ⑤ | 현장 적응을 할 수 없다. 워크로드가 읽기 위주의 정적 패턴이 되어 버스트 충돌, 복제 I/O, 버전 전환, 새 객체 이벤트가 사라진다. |
-| ③ | 배치 기준(β, cache 함수)이 없다. 캐시 상한을 정할 근거가 없어 기본값(RAM의 1/2)이 KV 공간을 차지한다. 항상 로컬 배치가 최적이 되어 최적화 문제가 사라진다. |
-| ⑦ | 이벤트마다 수동으로 재설정해야 한다. 이력이 없는 새 어댑터에는 로그 기반 결정을 쓸 수 없다. 자연어 운영 정책을 반영할 수 없다. |
+| ⑧ | FP16 모델을 올릴 수 없다. 소비 노드 기준 배치가 성립하지 않는다. |
+| ② | 질의마다 기록 구간 수천 토큰을 다시 계산한다. 설비 KV를 공유·보존할 수 없다. 공유 저장의 필요성이 약해진다. |
+| ⑤ | 현장 적응이 없다. KV 유효성 문제, 재생성 I/O, 복제 I/O가 사라진다. |
+| ③ | 배치·상주·캐시 상한의 기준이 없다. 캐시가 상주 KV를 차지한다. |
+| ⑦ | 이벤트마다 수동 재설정이 필요하다. 설비 의미 정책을 저장 결정으로 바꿀 수 없다. |
 
 ### 3.10 구현
 
@@ -1549,55 +1492,60 @@ t5      E8  N3 복귀 → 저부하 구간에 N3로 stage 3 반납, N0 플래너
 
 | 구성 | 선택 | 이유 |
 |---|---|---|
-| 서빙·학습 런타임 | PyTorch + HF transformers + PEFT 기반 자체 파이프라인 | LG 단위 로드, stage별 KV 저장·로드, 같은 base 가중치 위의 LoRA 학습, 어댑터 전환, I/O 경로 계측을 직접 제어할 수 있다. |
-| 파이프라인 학습 | forward activation 전달, backward gradient 전달을 직접 구현 (GPipe 방식, micro-batch 단위) | 노드당 메모리 제약으로 단순한 스케줄 사용 |
-| stage 간 통신 | TCP (ZeroMQ 또는 gRPC) | activation이 토큰당 5KiB로 작다. |
-| KV 직렬화 | HF DynamicCache 텐서를 LG 단위 연속 바이트로 기록, 오프셋 인덱스 별도 저장, 읽은 뒤 page cache 해제 | append, 부분 읽기, 캐시 이중 점유 방지 |
-| 체크포인트 | 메모리 스냅샷 → 로컬 쓰기 → `lfs mirror extend`로 원격 복제 (별도 스레드) | 3단계 분리 |
-| 플래너 | llama.cpp server (Qwen3-4B Q4_K_M) + JSON schema + prompt cache | N0 메모리 예산 안에서 실행 |
-| 비교 대상 B7 | llama.cpp server (노드별 Qwen3-4B Q4_K_M) | 단일 노드 양자화 서빙 비교 |
-| 비용 모델·검증기 | Python | 분할 전수 탐색(165개) 또는 동적 계획법 |
-| Executor | Python에서 `lfs`, `lctl` 호출 | 적용 결과와 실패 기록 |
-| Telemetry | tegrastats 또는 jtop, `lctl get_param obdfilter.*.job_stats`, `osc.*.stats`, `/proc/meminfo`, `/proc/pressure/*`, `/proc/softirqs`, `/proc/net/dev` | 1초 주기 |
+| 서빙·학습 런타임 | PyTorch + HF transformers + PEFT 자체 파이프라인 | LG 단위 로드, KV 직렬화, 경계 activation 추출, 부분 재생성, 상위 LG LoRA 학습 제어 |
+| stage 간 통신 | TCP (ZeroMQ 또는 gRPC) | activation 토큰당 5KiB |
+| KV Store | Python 라이브러리 (각 stage 프로세스에 포함) | pack append·봉인, 주소 계산(BLAKE3 또는 SHA-256), 헤더 검증, 상주 관리 |
+| 전역 인덱스 | 공유 prefix용 작은 KV DB (SQLite 또는 LMDB) 파일, OST0 + mirror | 조회 빈도 낮음 |
+| 체크포인트 | 스냅샷 → 로컬 쓰기 → `lfs mirror extend` | 3단계 분리 |
+| 플래너 | llama.cpp server (Qwen3-4B Q4_K_M) + JSON schema + prompt cache | N0 메모리 예산 |
+| 비교 대상 B7 | llama.cpp server 노드별 복제 | 단일 노드 양자화 |
+| 비용 모델·검증기·Executor | Python | 분할 전수 탐색(165개) |
+| Telemetry | tegrastats, `lctl get_param`, `/proc`, PSI | 1초 주기 |
 
 #### 3.10.2 디렉터리 구조 (예정)
 
 ```
 lflustre_iot/
 ├── README.md
-├── legacy/                # 기존 IFLustre IoT 벤치마크 스크립트 (현재 루트 파일, 정리 시 이동)
+├── legacy/                # 기존 IFLustre IoT 스크립트 (정리 시 이동)
 ├── harness/
-│   ├── place.py           # 배치 인터페이스 (모든 I/O 공통 경로)
-│   ├── ingest/            # W1 (iotbenchlustre.py 기반, 속도 제한 모드 추가)
-│   ├── samples/           # W2 학습 샘플 생성
-│   ├── runtime/           # stage runtime (서빙 + 공동 LoRA 학습), KV manager, weight loader,
-│   │                      # adapter manager, checkpoint manager
-│   ├── workload/          # 요청 생성기 (3.2.3절 구성, 트레이스 재생)
+│   ├── place.py           # 배치 인터페이스
+│   ├── ingest/            # W1 수집, 레코드 변환
+│   ├── context/           # Context Builder, Prefill Scheduler, Compactor
+│   ├── kvstore/           # 주소, pack, 인덱스, 상주, 수거
+│   ├── runtime/           # stage runtime, weight/adapter loader, activation store, checkpoint manager
+│   ├── samples/           # W2 학습 샘플
+│   ├── workload/          # 질의 생성기, 트레이스 재생
 │   └── telemetry/
 ├── control/               # cost model, planner client, verifier, executor
-├── tools/                 # 가중치 LG 분할 변환기, 크기·메모리 계산기
-├── baselines/             # B7 llama.cpp 복제 서빙 등
+├── tools/                 # LG 분할 변환기, 크기·메모리 계산기
+├── baselines/             # B7, B8 등
 ├── experiments/
-│   ├── o1_path/ ... o6_events/   # 관찰 실험
-│   └── eval/                     # 평가 실험
+│   ├── p0_env/
+│   ├── o1_path/ ... o7_kvreuse/
+│   └── eval/
 └── docs/
 ```
 
-#### 3.10.3 place() 인터페이스
-
-모든 I/O는 아래 함수를 거친다. 비교 대상(baseline)은 이 함수와 스케줄러의 구현만 다르고, 나머지 코드는 같다.
+#### 3.10.3 주요 인터페이스
 
 ```python
-def place(obj: str, lg: int | None, producer: str, consumer: list[str], size: int) -> Layout:
-    """
-    obj      : 'weight' | 'embed' | 'kv' | 'ckpt' | 'adapter' | 'iot' | 'train'
-    lg       : LG 번호 (해당 없으면 None)
-    producer : 생성 노드
-    consumer : 소비 노드 목록 (임베딩은 2개)
-    size     : 예상 크기 (bytes)
-    반환     : 기본 OST, stripe count, stripe size, mirror OST 목록, 복제 시점 정책
-    """
+def place(obj: str, lg: int | None, producer: str, consumer: list[str],
+          size: int, attrs: dict) -> Layout:
+    """obj: 'weight'|'embed'|'kvpack'|'act'|'session'|'ckpt'|'adapter'|'iot'
+       attrs: 의미 속성 (line, equipment, epoch, anomaly, priority 등)
+       반환: 기본 OST, stripe, mirror OST 목록, 복제 정책"""
+
+class KVStore:
+    def key(self, lg: int, chain: bytes) -> bytes: ...                 # 내용 주소
+    def append(self, ctx: str, lg: int, chunk_kv, chain: bytes): ...   # 열린 pack에 append
+    def seal(self, ctx: str, lg: int): ...                             # pack 봉인 → 복제 대기열
+    def get(self, ctx: str, lg: int, chain_upto: bytes) -> KVView: ...  # 경로 계산 + 검증 + 읽기
+    def resident(self, ctx: str) -> bool: ...
+    def gc(self, live_epochs, live_versions, live_sessions): ...
 ```
+
+비교 대상(baseline)은 `place()`, KV Store의 정책 부분, 스케줄러 구현만 다르고 나머지 코드는 같다.
 
 ---
 
@@ -1609,25 +1557,27 @@ def place(obj: str, lg: int | None, producer: str, consumer: list[str], size: in
 
 | 항목 | 기록 내용 |
 |---|---|
-| 모듈 | Orin Nano 8GB 모듈 버전, 개발자 키트 종류(Super 여부), JetPack 버전, 전력 모드 |
-| 메모리 | `free -m` 가용량, zram 스왑 활성화 여부와 크기 |
-| 저장 장치 | 노드별 NVMe 장착 여부·모델·용량, raw 순차 읽기/쓰기 대역폭 (fio), OS 설치 위치(microSD/NVMe) |
-| 네트워크 | NIC 속도, 스위치, iperf3 측정 대역폭 (노드 쌍별, 양방향) |
-| Lustre | 버전, OSD 백엔드, MDT/OST 크기, LNet 설정, `max_cached_mb` 기본값 |
+| 모듈 | Orin Nano 모듈 버전, Super 여부, JetPack, 전력 모드 |
+| 메모리 | `free -m`, zram |
+| 저장 장치 | NVMe 장착·모델·용량·raw 대역폭, OS 위치 |
+| 네트워크 | 유선·무선 인터페이스, 경로, LNet NID, iperf3 |
+| Lustre | 버전, 백엔드, MGS/MDS 위치, OST ↔ 호스트, 노드별 client 마운트, `max_cached_mb` 기본값 |
 
 #### 4.1.2 사전 점검 항목
 
-| ID | 점검 | 방법 | 통과 기준 |
-|---|---|---|---|
-| C1 | Lustre 기능 지원 | `lfs setstripe -E`(PFL), `lfs mirror create/extend/resync`(FLR), `lctl set_param ost.OSS.ost_io.nrs_policies="tbf jobid"`(TBF), `lctl get_param obdfilter.*.job_stats`(jobstats) 실행 | 각 명령 정상 동작 |
-| C2 | 같은 노드 OST 접근 경로 | N1에서 OST1 파일을 읽으면서 `/proc/net/dev`의 NIC 바이트 변화 확인 | 경로 확인 결과 기록 |
-| C3 | client + OSS 동시 운용 안정성 | 메모리 사용 85% 이상 상태에서 2시간 연속 읽기·쓰기 (로컬 + 원격) | hang, OOM 없음 |
-| C4 | 캐시 설정 | `max_cached_mb` 기본값 기록 후 512MB로 설정, OSD 캐시 설정 기록, ZFS 사용 시 ARC 상한 | 설정 적용 확인 |
-| C5 | 메모리 예산 | headless 부팅 후 OS 사용량, PyTorch CUDA 초기화 후 사용량, Lustre 마운트 후 사용량 측정 | 3.1.3절 표 갱신 |
-| C6 | 모델 실행 | Qwen3-4B FP16 4-stage 파이프라인으로 출력 확인, 다른 장비의 단일 실행 결과와 토큰 일치 확인 | 토큰 일치 |
-| C7 | 공동 학습 실행 | 서빙 중 LoRA 10 step 학습, 노드별 메모리와 step 시간 기록 | OOM 없음 |
-| C8 | 플래너 실행 | N0에서 Qwen3-4B Q4_K_M llama.cpp server, JSON schema 출력 확인, 결정 지연 측정 | 스키마 준수 |
-| C9 | 시간 동기화 | 전 노드 chrony/NTP | 오차 1ms 이내 |
+| ID | 점검 | 통과 기준 |
+|---|---|---|
+| C1 | Lustre 기능 (PFL, FLR, migrate, TBF, jobstats, CPT) | 정상 동작 |
+| C2 | 같은 노드 OST 경로, 원격 경로 대역폭 | 결과 기록 |
+| C3 | client + OSS 동시 운용 안정성 (사용자 승인 후) | hang, OOM 없음 |
+| C4 | 캐시 설정 기록 | 기록 |
+| C5 | 메모리 예산 실측 | 3.1.4절 표 갱신 |
+| C6 | Qwen3-4B 4-stage 출력 일치 | 토큰 일치 |
+| C7 | 상위 LG LoRA 공동 학습 10 step | OOM 없음 |
+| C8 | 플래너 JSON 출력, 결정 지연 | 스키마 준수 |
+| C9 | 시간 동기화 | 1ms 이내 |
+| C10 | KV 직렬화·복원 정확성: 저장 후 다시 읽은 KV로 생성한 토큰이 전체 prefill 결과와 일치 | 토큰 일치 |
+| C11 | 경계 activation 기반 LG9–11 재생성 KV가 전체 재계산 KV와 일치 (FP16 허용 오차) | 오차 기준 이내 |
 
 ### 4.2 워크로드 구성 상세
 
@@ -1635,321 +1585,336 @@ def place(obj: str, lg: int | None, producer: str, consumer: list[str], size: in
 
 | 항목 | 값 |
 |---|---|
-| 데이터 | Bot-IoT, Widar3.0, MIMII, VisDrone, EPIC-Sounds, LoED (원 논문 6종), Loghub(HDFS, BGL), RIoTBench 레코드 스트림 |
-| 쓰기 방식 | 데이터셋별 디렉터리에 원본 파일 단위로 쓰기. 레코드 스트림은 1분 단위 파일로 묶어서 쓰기 |
-| 수집률 | 0 / 10 / 30 / 60 MB/s (민감도 변수), 기본 10MB/s |
-| 배치 | 기본 OST0 (로컬). 비교 구성에서는 Lustre 기본 레이아웃 |
-| 원본 위치 | N0의 별도 로컬 파티션 또는 microSD (Lustre 외부) |
-| 도구 | `iotbenchlustre.py`에 속도 제한과 연속 실행 모드 추가 |
+| 원본 데이터 | 원 논문 6종, Loghub(HDFS, BGL), RIoTBench 레코드 |
+| 설비 컨텍스트 | 4개 라인 × 2개 설비 = 8개 |
+| 레코드 변환 | MIMII 음향 → 특징·이상 점수 레코드, Bot-IoT → flow 요약 레코드, Loghub → 로그 줄(정규화), RIoTBench → 센서 값 레코드 |
+| 레코드 주기 | 설비당 10초 (변수: 2/10/30초) |
+| 시간 가속 | 실험 시 기록 시간을 2–10배 가속 재생 |
+| 원본 저장 | OST0, 기본 수집률 10MB/s (변수 0–60MB/s) |
+| 수집 시점 prefill 배치 간격 | 기본 5분 (변수 1/5/15분, 비활성) |
+| 컨텍스트 한계 | 기본 8k, 민감도 16k |
 
 #### 4.2.2 W2 Adapt
 
 | 항목 | 값 |
 |---|---|
-| 학습 샘플 생성 | N0가 라운드마다 W1 데이터에서 생성한다. ① MIMII: 음향 특징 요약 + 정상/고장 라벨 → 원인 설명 응답, ② Bot-IoT: flow 요약 + 공격 라벨 → 판정 응답, ③ Loghub: 로그 구간 + 이상 라벨 → 판정과 근거 응답 |
-| 라운드당 샘플 | 400–1,000개 (시퀀스 512–1024) |
-| 적응 시간대 | 실험용 30–60분 (현장 가정: 야간) |
-| 학습 비율 | 서빙 우선, 남는 연산의 20–50% |
-| 학습 설정 | 3.3.2절 표 |
-| 학습 처리량 | 측정 후 라운드 step 수 조정 (C7) |
-| 체크포인트 | 25 step마다. stage당 약 35MB (rank 16) / 약 0.4GB (rank 64 전체 linear, 민감도) |
-| 어댑터 | 라운드 종료 시 stage당 약 6MB (rank 16) |
-
-어댑터가 응답 품질에 기여하는지는 별도로 확인한다. 라운드별 검증 샘플에서 판정 정확도를 1회 측정하며, 이는 주 평가 대상이 아닌 확인용 실험이다.
+| 학습 샘플 | 설비 컨텍스트 구간 + 라벨(MIMII 정상/고장, Bot-IoT 공격 여부, Loghub 이상 여부) → 판정·근거 응답 |
+| 라운드당 샘플 | 400–1,000 |
+| LoRA 범위 | LG9–11 (비교: LG6–11, 전체) |
+| 적응 시간대 | 실험용 30–60분 |
+| 체크포인트 | 25 step, N4 약 35MB (민감도 0.4GB) |
+| 품질 확인 | 라운드별 검증 세트에서 판정 정확도. LoRA 범위별, 압축 방식별로 비교한다. 주 평가가 아닌 확인용이다. |
 
 #### 4.2.3 W3 Serve
 
 | 항목 | 값 |
 |---|---|
-| 모델 | Qwen3-4B FP16, 4-stage (3.3.2절) |
-| 라인 수 | 4 (라인별 매뉴얼 2k–4k 토큰) |
-| 요청 구성 | 3.2.3절 표 |
+| 질의 구성 | 3.2.3절 |
+| 질의 대상 분포 | 라인·설비별 Zipf 분포 + 교대 시각 집중 |
+| 도착 과정 | ① Poisson (최대 처리량의 30/60/90%), ② BurstGPT/Azure 시간 패턴 축소 재생, ③ 교대 시각 집중 |
 | 세션 | 1–5턴, 턴 간격 30초–10분 |
-| 도착 과정 ① | Poisson, 평균 도착률 = 측정된 최대 지속 처리량의 30%, 60%, 90% |
-| 도착 과정 ② | BurstGPT 또는 Azure LLM inference trace의 시간 패턴을 Orin Nano 처리 용량에 맞춰 축소 재생 |
-| 도착 과정 ③ | 교대 시작 시각에 라인별 질의가 몰리는 패턴 (정책 기반 미리 읽기 평가용) |
-| prefix 재사용 | 기본은 3.2.3절 구성으로 합성. 대안으로 Mooncake trace의 블록 해시를 재생 |
-| SLO | TTFT p99: O4 측정 후 "로컬 KV 적중 시 TTFT의 3배"로 설정. TPOT p99: O2 무부하 측정값의 1.5배 |
-| 배치 처리 | stage별 micro-batch로 여러 요청을 파이프라인에 동시에 흘림 (동시 micro-batch 4개) |
+| SLO | TTFT p99 = 상주 적중 시 TTFT의 3배 (O7 후 확정), TPOT p99 = 무부하의 1.5배 |
+| 동시 micro-batch | 4 |
 
 #### 4.2.4 배경 간섭 부하
 
 | 부하 | 용도 |
 |---|---|
-| fio (읽기/쓰기, 1MiB/4MiB, 속도 단계, 로컬·원격) | O2, O3의 통제된 간섭원 |
-| W1 수집 | 실제 IoT 배경 부하 |
-| W2 체크포인트·복제 | 버스트 부하 |
+| fio (로컬·원격, 읽기/쓰기, 속도 단계) | O2, O3의 통제된 간섭원 |
+| W1 수집 | IoT 배경 부하 |
+| W2 체크포인트·복제, KV 재생성, 압축 | 버스트 부하 |
 
 ### 4.3 측정 도구와 방법
 
 | 측정 대상 | 도구 | 주기 |
 |---|---|---|
-| GPU 사용률, EMC 사용률·주파수, CPU 코어별 사용률, 전력 | tegrastats (또는 jtop API) | 100ms–1s |
-| 메모리 (Cached, Free, Buffers, 프로세스별, zram) | `/proc/meminfo`, `/proc/<pid>/status`, `/sys/block/zram*` | 1s |
-| 메모리·CPU·I/O 압박 | PSI (`/proc/pressure/memory`, `cpu`, `io`) | 1s |
-| 메모리 회수 | `/proc/vmstat` (pgscan, pgsteal, pgmajfault), kswapd CPU | 1s |
-| softirq, 컨텍스트 스위치 | `/proc/softirqs`, `pidstat` | 1s |
-| NIC 송수신 | `/proc/net/dev`, `sar -n DEV` | 1s |
-| Lustre OST I/O (jobid별) | `lctl get_param obdfilter.*.job_stats`, `obdfilter.*.brw_stats` | 1s |
-| Lustre client RPC와 캐시 | `lctl get_param osc.*.rpc_stats`, `osc.*.stats`, `llite.*.max_cached_mb` (사용량 포함) | 1s |
+| GPU, EMC, CPU, 전력 | tegrastats / jtop | 100ms–1s |
+| 메모리, zram | `/proc/meminfo`, `/sys/block/zram*` | 1s |
+| 압박 | PSI (`/proc/pressure/*`) | 1s |
+| 메모리 회수 | `/proc/vmstat` | 1s |
+| softirq | `/proc/softirqs`, `pidstat` | 1s |
+| NIC | `/proc/net/dev` | 1s |
+| Lustre OST (jobid별) | `obdfilter.*.job_stats`, `brw_stats` | 1s |
+| Lustre client | `osc.*.rpc_stats`, `llite.*` | 1s |
+| MDS 메타데이터 연산 | `mdt.*.md_stats` | 1s |
 | 블록 장치 | `iostat -x` | 1s |
-| LLM 지표 | 런타임 내부 계측 (요청별 TTFT, 토큰별 시간, stage별 처리 시간, 학습 step 시간) | 이벤트 단위 |
+| KV Store | 조회 적중(상주/로컬/원격/재계산), pack 수, 저장량, 중복 제거량, 최신성 지연 | 이벤트 단위 |
+| LLM | TTFT, 토큰별 시간, stage별 시간, 학습 step, 재생성 시간 | 이벤트 단위 |
 
 **실험 규칙**
 
 | 항목 | 규칙 |
 |---|---|
-| 반복 | 단기 실험(O1–O3)은 5회, 장시간 실험(O5, S1–S6)은 3회 반복한다. 평균과 95% 신뢰구간을 보고한다. |
-| 백분위 지표 | p99는 구성당 최소 300 요청 이상에서 계산하고, p95도 함께 보고한다. |
-| 캐시 초기화 | 측정 전 client와 서버의 캐시를 비운다(`echo 3 > /proc/sys/vm/drop_caches`, Lustre `ldlm` lock 정리). |
-| 예열 | 측정 전 2분 예열 구간을 두고 결과에서 제외한다. |
-| 전력 모드 | 기본은 최대 성능 모드로 고정하고, 민감도 실험에서만 변경한다. 발열에 의한 클럭 저하를 tegrastats로 기록한다. |
-| 스왑 | zram 설정을 실험 전체에서 고정한다. |
-| 시간 동기화 | 전 노드 시계를 맞춘 뒤 이벤트 타임스탬프를 결합한다. |
+| 반복 | 단기 실험 5회, 장시간 실험 3회. 평균과 95% 신뢰구간 |
+| 백분위 | p99는 구성당 300 요청 이상, p95 함께 보고 |
+| 캐시 초기화 | 측정 전 drop_caches, Lustre lock 정리 |
+| 예열 | 2분 |
+| 전력 모드 | 최대 모드 고정 (민감도 제외), 발열 기록 |
+| 스왑 | zram 설정 고정 |
+| 시간 동기화 | 전 노드 동기화 후 이벤트 결합 |
 
 ### 4.4 관찰 실험 (논문 Section III)
-
-각 실험의 결과는 3.9.3절 비용 모델의 파라미터와 3.8절 설계 결정의 근거가 된다.
 
 #### O1. 엣지 저장 경로 특성
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 로컬 OST, 원격 OST, striping 경로의 대역폭과 CPU·NIC·메모리 비용을 측정한다. 1GbE에서 striping의 효과를 확인한다. |
-| 구성 | client N1. 대상: ① raw NVMe(ext4, Lustre 미사용), ② OST1(같은 노드), ③ OST2(원격), ④ stripe count 2 (OST1+OST2), ⑤ stripe count 4 (OST1–4), ⑥ stripe count 5, ⑦ Lustre 기본 레이아웃 |
-| 변수 | 읽기/쓰기, bs 1MiB/4MiB, 파일 0.6GiB(LG)/2GiB(stage)/8GiB, direct 0/1, 동시 client 수 1/2/4 |
-| 추가 측정 | 원격 읽기 중 stage 경계 activation(40MiB) 전달 시간 |
-| 지표 | MB/s, client·server 노드 CPU 사용률, NIC 바이트, softirq, page cache 증가량 |
-| 가설 | 원격 경로는 약 117MB/s로 제한된다. stripe count를 늘리면 원격 stripe가 가장 느린 stripe가 되어 로컬 단독보다 느리다. 같은 노드 OST 경로는 NIC를 쓰지 않지만 CPU와 캐시 비용이 있다. 원격 읽기 중 activation 전달 시간이 늘어난다. |
-| 반영 | ⑧, ②의 기본 배치 규칙, stripe count 1 결정, F_k와 A_k의 경로 대역폭 |
-| 산출 그림 | 경로별 대역폭 막대그래프, 경로별 CPU·NIC·캐시 사용량, NIC 경쟁 시 activation 전달 시간 |
+| 목적 | 로컬·원격·striping 경로의 대역폭과 CPU·NIC·캐시 비용 |
+| 구성 | raw NVMe, 같은 노드 OST, 원격 OST, stripe count 2/4/5, 기본 레이아웃 |
+| 변수 | 읽기/쓰기, bs 1M/4M, 파일 0.6GiB/2GiB/8GiB, direct 0/1, 동시 client 1/2/4 |
+| 추가 측정 | 원격 읽기 중 activation(40MiB) 전달 시간 |
+| 가설 | 원격 약 117MB/s 제한. striping은 원격 stripe가 가장 느린 stripe가 되어 불리. 원격 읽기가 activation 전달을 늦춤 |
+| 반영 | 기본 배치 규칙, stripe count 1, F_k·A_k |
 
 #### O2. 저장-연산 간섭
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 같은 노드의 저장 I/O가 LLM 연산을 얼마나, 어떤 경로로 지연시키는지 측정한다(β, cache 함수). |
-| 구성 | N1에서 stage 1(LG0–2)만 단독 실행한다. 입력은 고정 activation이며 세 가지를 측정한다: ① decode 루프(batch 1/4, 컨텍스트 4k), ② prefill(2k 토큰), ③ LoRA 학습 step |
-| 부하 | 서버 측(N2–N4 → OST1: 0/30/60/90/117MB/s), 로컬 client(N1 → OST1: 0/250/500/1000MB/s/최대), 원격 client(N1 → OST2: 0/60/117MB/s) |
-| 변수 | 읽기/쓰기, bs 1MiB/4MiB, 캐시 상한(기본값/1GB/512MB/256MB), 격리 수단(없음/CPU 분리/체크섬 off/TBF), 전력 모드 |
-| 지표 | tokens/s, 토큰 지연 p50/p99, 학습 step 시간, GPU 사용률, EMC 사용률·주파수, CPU 코어별 사용률, Cached, PSI memory/cpu, pgmajfault, kswapd CPU, softirq, 전력, OOM 발생 |
-| 가설 | 캐시 상한이 기본값이면 KV 가용 공간이 크게 줄고 메모리 압박(PSI)이 오른다. 로컬 고속 I/O는 decode를 늦춘다(메모리 대역폭, CPU). 서버 측 원격 부하는 1GbE 상한 때문에 감속은 작지만 캐시를 늘린다. 쓰기가 읽기보다 영향이 크다. |
-| 반영 | β_k, cache_k 함수, 캐시 상한 기본 설정, 격리 수단 기본 설정 |
-| 산출 그림 | 부하 대비 tokens/s 곡선, 캐시 상한별 KV 가용량과 PSI, EMC 사용률과 tokens/s 상관, 격리 수단별 비교 |
+| 목적 | β, cache 함수 측정 |
+| 구성 | 단일 stage에서 decode, prefill, 학습 step을 실행하면서 서버 측·로컬 client·원격 client 부하 |
+| 변수 | 부하 속도, 읽기/쓰기, bs, 캐시 상한(기본값/1GB/512MB/256MB), 격리 수단, 전력 모드 |
+| 지표 | tokens/s, 토큰 지연, step 시간, GPU·EMC·CPU, Cached, PSI, pgmajfault, OOM |
+| 가설 | 기본 캐시 상한에서 상주 KV 공간이 크게 줄고 PSI가 오른다. 로컬 고속 I/O가 decode를 늦춘다. 서버 측 원격 부하는 감속은 작지만 캐시를 늘린다. |
+| 반영 | β_k, cache_k, 캐시 상한·격리 기본값 |
 
 #### O3. 파이프라인 증폭
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 한 stage의 간섭이 파이프라인 전체 처리량에 미치는 영향을 측정한다. |
-| 구성 | 4-stage 파이프라인 정상 decode(동시 요청 8개). 같은 총량의 저장 I/O 부하를 ① N1 한 곳에 집중, ② N1–N4에 균등 분산, ③ N0(비 stage 노드)에 집중 |
-| 지표 | 파이프라인 tokens/s, stage별 처리 시간, 대기 시간 |
-| 가설 | ①이 가장 나쁘다. ③이 가장 좋다(NIC 여유가 있을 때). ②는 그 사이이다. |
-| 반영 | 목적 함수 max_k T_k, N0 활용 규칙 |
-| 산출 그림 | 배치 방식별 처리량, stage별 처리 시간 분해 |
+| 목적 | 한 stage 간섭의 전체 영향 |
+| 구성 | 같은 총 부하를 ① 한 stage에 집중, ② 균등 분산, ③ N0에 집중 |
+| 가설 | ① 최악, ③ 최선 |
+| 반영 | 목적 함수, N0 활용 |
 
 #### O4. 메모리 구성과 prefill 대 KV 로드
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 노드별 메모리 구성을 확인하고, prefill 재계산과 KV 로드의 시간을 비교한다. 단일 노드 양자화 대안의 한계를 확인한다. |
-| 구성 | ① 서빙 중 노드별 메모리 분해(가중치, KV, page cache, Lustre, 런타임, 학습), ② 컨텍스트 1k/2k/4k/8k/16k에서 prefill 시간과 KV 로드 시간(로컬 OST, 원격 OST, OST0, 기본 레이아웃) 비교, ③ 메모리 안에 유지 가능한 세션 수, ④ KV 읽기 후 page cache 해제 유무와 direct I/O 비교, ⑤ 단일 노드 Qwen3-4B Q8_0/Q4_K_M(llama.cpp)의 최대 컨텍스트와 동시 세션 수 |
-| 지표 | GB, 초, 세션 수 |
-| 가설 | 로컬 KV 로드는 prefill보다 10배 이상 빠르다. 원격 KV 로드는 재계산과 비슷하다. 메모리 안 세션 수는 하루 세션 수보다 훨씬 작다. 단일 노드 Q8_0은 8k 세션을 수용하지 못한다. |
-| 반영 | ②의 필요성 근거, 재계산 vs 읽기 판단 기준, 캐시 해제 방식, TTFT SLO 설정, 3.3.3절 대안 배제 근거 |
-| 산출 그림 | 컨텍스트 길이별 prefill 시간 vs KV 로드 시간(경로별), 노드별 메모리 구성 누적 막대 |
+| 목적 | 메모리 구성, prefill vs KV 로드, 단일 노드 대안의 한계 |
+| 구성 | ① 노드별 메모리 분해, ② 컨텍스트 1k–16k에서 prefill 시간 vs KV 로드 시간(경로별), ③ 상주 가능 컨텍스트 수, ④ 캐시 해제·direct I/O, ⑤ 단일 노드 Q8_0/Q4_K_M 최대 컨텍스트 |
+| 가설 | 로컬 KV 로드가 prefill보다 10배 이상 빠르고, 원격 로드는 재계산과 비슷하다. |
+| 반영 | ②의 필요성, 재계산 vs 읽기 기준, SLO |
 
 #### O5. 라이프사이클 I/O 충돌
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 공동 학습의 체크포인트·복제 I/O가 서빙 TTFT에 미치는 영향을 측정한다. |
-| 구성 | W3를 최대 처리량의 60%로 서빙(KV 재사용 포함)하는 중에 공동 학습과 체크포인트를 실행한다. 크기(stage당 35MB / 0.4GB), 복제 위치(① 복제 없음, ② OST0 집중, ③ 다른 stage 노드로 분산), TBF 유무, 시점 제어 유무 |
-| 추가 측정 | 학습 연산 자체의 영향(학습 비율 0/20/50%)을 체크포인트 I/O 영향과 분리 |
-| 지표 | TTFT 시계열, p50/p99, 학습 step 시간, 복제 완료 시간, NIC 사용률 |
-| 가설 | ②에서 N0 NIC가 포화되어 OST0을 쓰는 KV 읽기가 지연된다. ③에서는 stage 노드의 NIC와 캐시가 경쟁해 TTFT p99가 증가한다. TBF와 시점 제어로 TTFT 증가를 줄이는 대신 복제 완료가 늦어진다. |
-| 반영 | ⑤의 복제 위치·속도·시점 제어 |
-| 산출 그림 | TTFT 시계열 (체크포인트·복제 구간 표시), 구성별 p99와 복제 완료 시간 |
+| 목적 | 체크포인트·복제·재생성·압축 버스트가 TTFT에 주는 영향 |
+| 구성 | 서빙 60% 부하 중 버스트 실행. 위치(로컬/OST0/다른 stage), TBF 유무, 시점 제어 유무 |
+| 가설 | OST0 집중 시 N0 NIC 포화, 다른 stage 분산 시 NIC·캐시 경쟁. TBF로 TTFT 증가는 줄지만 완료가 늦어진다. |
+| 반영 | ⑤와 ②의 백그라운드 I/O 제어 |
 
-#### O6. 생성·소비 위치와 이벤트
+#### O6. 장애·재분할과 이벤트
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 장애 복구와 재분할에서 배치의 영향, 그리고 재계획이 필요한 이벤트의 빈도를 확인한다. |
-| 구성 | ① 장애 복구: mirror 없음 vs OST0 mirror + P'_k(N0 대체) vs P''_k(3-stage 재분할), ② 재분할 시 기본 레이아웃과 LG 기반 배치의 이동 바이트와 시간, ③ 어댑터 버전 전환 시간과 서빙 중단 시간, ④ 플래너 결정 지연(N0, Qwen3-4B Q4_K_M), ⑤ S1 시나리오 2시간 동안 E2–E8 이벤트 발생 횟수 |
-| 지표 | 초, 바이트, 이벤트 횟수 |
-| 가설 | OST0 mirror + N0 대체가 가장 빠르게 복구한다. 기본 레이아웃은 재분할 시 원격 읽기가 많다. 이벤트는 시간당 수 회 발생한다. 플래너 결정 지연은 slow path에서 허용 가능한 수준(수십 초 이내)이다. |
-| 반영 | ⑧의 mirror·대체 분할 설계, ⑤의 버전 전환, ⑦의 호출 정책 |
-| 산출 그림 | 방식별 복구 시간, 재분할 이동량, 이벤트 타임라인 |
+| 목적 | 복구 방식별 시간, 재분할 이동량, 이벤트 빈도, 플래너 지연 |
+| 구성 | mirror 없음 / OST0 mirror + P'_k / P''_k, 기본 레이아웃 vs LG 배치, 2시간 시나리오의 이벤트 수 |
+| 반영 | ⑧ mirror·대체 분할, ⑦ 호출 정책 |
 
-III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 둔다.
+#### O7. IoT 질의의 KV 재사용 구조
+
+| 항목 | 내용 |
+|---|---|
+| 목적 | 슬라이딩 윈도우에서 prefix 재사용의 한계, 이어 쓰기 컨텍스트와 수집 시점 prefill의 효과와 비용 |
+| 구성 | ① 슬라이딩 윈도우 질의 + 질의 시점 prefix 재사용 vs 이어 쓰기 컨텍스트 + 수집 시점 prefill (재사용 토큰 비율, TTFT), ② 배치 간격별 수집 시점 prefill 연산 시간, 읽기 증폭량, 최신성 지연, ③ chunk별 파일 vs pack의 MDS 메타데이터 연산 수, ④ 공유 prefix 중복 제거량, ⑤ 전체 LoRA vs 상위 LG LoRA의 어댑터 전환 후 재계산량과 시간(경계 activation 유무), ⑥ 하루 기준 KV 저장량과 압축 빈도 |
+| 가설 | 슬라이딩 윈도우에서 재사용 토큰은 지시문·매뉴얼에 그친다. 수집 시점 prefill 비용은 유휴 연산의 일부이다. 경계 activation 재생성은 전체 재계산 대비 약 75% 연산을 줄인다. |
+| 반영 | ②의 설계 근거, 배치 간격 기본값, LoRA 범위 기본값 |
+
+III장 끝에는 관찰-설계 대응표를 둔다.
 
 ### 4.5 평가 실험 (논문 Section V)
 
 #### 4.5.1 비교 대상
 
-| ID | 이름 | 분할 P | 배치 M | 시점·속도 S | 재계획 |
+| ID | 이름 | KV 재사용 | 분할·배치 | 백그라운드 I/O 제어 | 재계획 |
 |---|---|---|---|---|---|
-| B0 | Default Lustre | 연산량 균등 분할 | Lustre 기본 레이아웃, 기본 캐시 상한, 체크포인트 원격 복제 즉시 실행 | 제어 없음 | 없음 |
-| B1 | Local-replica | 연산량 균등 분할 | 노드마다 FP16 가중치 전체 사본(8GB)을 로컬 디스크에 보관, KV는 로컬만, 체크포인트는 로컬 + rsync로 N0에 복사 | 제어 없음 | 없음 |
-| B2 | 원 IFLustre | 연산량 균등 분할 | OSS 여유 처리량 기반 할당 (연산 간섭·메모리 미고려) | runtime-aware | 시작 시 1회 |
-| B3 | Search-only | 비용 모델 탐색 | 비용 모델 탐색 | 비용 모델 탐색 | 이벤트마다 전체 재탐색. 운영 정책은 사람이 미리 제약으로 변환 |
-| B4 | 제안 기법 (규칙) | 비용 모델 | 3.9.7절 규칙 | 3.9.7절 규칙 | 이벤트마다 규칙 적용 |
-| B5 | 제안 기법 (LLM) | 비용 모델 + 플래너 | 플래너 + 검증기 | 플래너 + 검증기 | 이벤트마다 propose-verify |
-| B6 | Hand-tuned | 시나리오별 수동 최적 | 수동 | 수동 | 수동 |
-| B7 | Replicated-Q4 | 분할 없음 (노드별 Qwen3-4B Q4_K_M 복제, 요청 단위 부하 분산) | KV 로컬만 (llama.cpp prompt cache) | – | 없음. 적응 학습 불가 |
+| B0 | Default Lustre | 질의 시점 prefix (KV를 Lustre 기본 레이아웃에 저장) | 균등 분할, 기본 레이아웃, 기본 캐시 | 없음 | 없음 |
+| B1 | Local-replica | 질의 시점 prefix, 로컬 디스크 | 노드별 전체 가중치 사본 | 없음 | 없음 |
+| B2 | 원 IFLustre | 질의 시점 prefix | OSS 처리량 기반 할당 | runtime-aware | 시작 시 |
+| B3 | Search-only | CoStripe KV 저장소 | 비용 모델 탐색 | 비용 모델 탐색 | 전체 재탐색, 정책은 수동 변환 |
+| B4 | CoStripe (규칙) | CoStripe KV 저장소 | 3.9.7절 규칙 | 규칙 | 규칙 |
+| B5 | CoStripe (LLM) | CoStripe KV 저장소 | 플래너 + 검증기 | 플래너 + 검증기 | propose-verify |
+| B6 | Hand-tuned | 수동 | 수동 | 수동 | 수동 |
+| B7 | Replicated-Q4 | llama.cpp prompt cache (로컬) | 노드별 Q4 복제 | – | 없음, 학습 불가 |
+| B8 | Prefix-only CoStripe | 질의 시점 prefix (LMCache 방식 chunk 해시) | CoStripe 배치·간섭 제어 | CoStripe | CoStripe | 
 
-- S6에서는 LLM-only(검증기 없음)를 추가한다.
-- B7은 서빙 성능 비교(S2)와 품질 비교에만 쓴다.
+- B8은 KV 재사용 구조(②)의 효과만 분리하기 위한 비교 대상이다.
+- 선택 비교: CacheBlend 방식 근사 재사용.
+- S6에서는 LLM-only를 추가한다.
 
 #### 4.5.2 평가 시나리오
 
-| ID | 시나리오 | 설정 | 확인 내용 | 관련 RQ |
+| ID | 시나리오 | 설정 | 확인 내용 | RQ |
 |---|---|---|---|---|
-| S1 (메인) | End-to-end 라이프사이클 | 2시간. W1 10MB/s, W3 도착 과정 ②, 적응 라운드 2회, 60분 시점 N3 장애, 90분 시점 N3 복귀, 30분 시점 정책 변경 1회 | 시간축에 따른 SLO 달성률, TTFT p99, 라운드 완료 시간, 복구 시간, 이동 바이트 | RQ1–RQ4 |
-| S2 | 정상 상태 서빙 | W3 도착률 30/60/90%, W1 0/10/60MB/s, 컨텍스트 4k/8k | TTFT, TPOT, 처리량, KV hit rate | RQ2 |
-| S3 | 서빙 + 공동 학습 + 체크포인트 | W3 60%, 학습 비율 20/50%, 체크포인트 stage당 35MB/0.4GB, 간격 변화 | TTFT p99, 학습 처리량, 라운드 완료 시간, 복제 완료 시간 | RQ3 |
-| S4 | 어댑터 버전 전환 | 라운드 종료 시점 반복 | 전환 시간, 서빙 중단 시간, 버전 불일치 여부 | RQ3 |
-| S5 | 장애와 재분할 | N1–N4 각각 장애, 부하 변화에 의한 재분할 | 복구 시간, 이동 바이트, 복구 중 TTFT, 학습 재개 손실 step | RQ2 |
-| S6 | 플래너 비교 | 이벤트 30종 (기존 정책 15종, 처음 보는 정책·모델·장애 15종) | SLO 달성률, 정책 준수율, 유효하지 않은 계획 비율, 결정 지연 | RQ4 |
+| S1 (메인) | End-to-end 라이프사이클 | 2시간(기록 시간 가속), 설비 8개, 적응 라운드 2회, N3 장애·복귀, 정책 변경 1회, 압축 포함 | 시간축 SLO 달성률, TTFT p99, 최신성, 라운드 완료, 복구 시간 | RQ1–RQ5 |
+| S2 | 정상 상태 서빙 | 도착률 30/60/90%, 컨텍스트 8k/16k, 배치 간격 변화 | TTFT, TPOT, 처리량, KV 적중 계층 분포 | RQ2, RQ3 |
+| S3 | 서빙 + 적응 학습 | 학습 비율, 체크포인트 크기·간격 | TTFT p99, 학습 처리량, 복제 완료 | RQ4 |
+| S4 | 어댑터 전환 | 라운드 종료 반복 | 전환·재생성 시간, 재생성 중 TTFT, 버전 불일치 | RQ4 |
+| S5 | 장애와 재분할 | N1–N4 각각 장애, 부하 변화 재분할 | 복구 시간, 이동 바이트, 복구 중 TTFT | RQ2 |
+| S6 | 플래너 비교 | 이벤트 30종 (기존 15, 처음 보는 15) | SLO, 정책 준수, 무효 계획 비율, 결정 지연 | RQ5 |
+| S7 | KV 재사용 구조 | 레코드 주기, 질의 분포, 컨텍스트 한계, LoRA 범위 변화 | B0/B8/B4 비교, 저장량, 수집 시점 연산, 압축·재생성 비용 | RQ3 |
 
 #### 4.5.3 지표
 
 | 분류 | 지표 |
 |---|---|
-| 서빙 | TTFT p50/p95/p99, TPOT p50/p99, tokens/s, SLO 달성률, KV hit rate |
-| 라이프사이클 | 가중치 로드 시간, 재분할·장애 복구 시간, 체크포인트 소요 시간, 복제 완료 시간, 학습 step/s, 학습 정지 시간, 라운드 완료 시간, 버전 전환 시간 |
-| 메모리 | 노드별 KV 가용량, 캐시 점유량, PSI memory, OOM 발생 |
-| 자원·비용 | J/token (tegrastats 전력), 이동 바이트, NIC 사용률, OST 사용량, MDS 메타데이터 연산 수 |
-| 플래너 | 결정 지연, 플래너 메모리·전력, 정책 준수율, 유효하지 않은 계획 비율, 검증기 거절 횟수 |
+| 서빙 | TTFT p50/p95/p99, TPOT, tokens/s, SLO 달성률 |
+| KV | 적중 계층 분포(상주/로컬/원격/재계산), 재사용 토큰 비율, 최신성 지연, 저장량, 중복 제거량 |
+| 라이프사이클 | 로드·복구 시간, 체크포인트·복제 완료, 학습 step/s, 라운드 완료, 재생성 시간, 압축 시간 |
+| 메모리 | 상주 KV, 캐시 점유, PSI, OOM |
+| 자원·비용 | J/token, 이동 바이트, NIC 사용률, MDS 메타데이터 연산 수 |
+| 플래너 | 결정 지연, 메모리·전력, 정책 준수율, 무효 계획 비율 |
+| 품질 (확인용) | LoRA 범위별·압축 방식별 판정 정확도 |
 
 #### 4.5.4 Ablation
 
 | 제거 대상 | 확인 내용 |
 |---|---|
-| β 반영 (비용 모델에서 β=0) | 연산 감속을 고려하는 효과 |
-| cache 함수와 캐시 상한 (기본값 사용) | 메모리 용량 간섭 대응의 효과 |
-| 소비 노드 배치 (기본 레이아웃 사용) | LG 기반 배치의 효과 |
-| OST0 전체 mirror + N0 대체 | 장애 복구 효과 |
-| 3단계 체크포인트 (즉시 원격 쓰기로 대체) | 로컬 쓰기와 지연 복제 분리의 효과 |
-| TBF 속도 제한 | 속도 제한의 효과 |
-| 복제 시점 제어 | 시점 제어의 효과 |
-| KV page cache 해제 | 캐시 이중 점유 방지의 효과 |
-| 노드 내 격리 (CPU 분리) | 격리 수단의 효과 |
-| 플래너 (규칙으로 대체) | 플래너의 효과 |
+| 수집 시점 prefill (질의 시점에만 계산) | 사전 계산 효과 |
+| 이어 쓰기 컨텍스트 (슬라이딩 윈도우) | 컨텍스트 구조 효과 |
+| pack (chunk별 파일) | 메타데이터 비용 |
+| 공유 prefix 중복 제거 | 저장량·연산 |
+| stage 간 상주 조정 (독립 상주) | 상주 조정 효과 |
+| 의미 기반 미리 읽기 | 교대 시각 TTFT |
+| 규칙 압축 (한계 도달 시 재계산) | 압축 효과 |
+| 상위 LG LoRA + 경계 activation (전체 LoRA, 전체 재계산) | 재생성 비용 |
+| β 반영, cache 함수·캐시 상한 | 간섭 고려 효과 |
+| 소비 노드 배치, OST0 mirror + N0 대체 | 배치·복구 효과 |
+| 3단계 체크포인트, TBF, 시점 제어 | 백그라운드 I/O 제어 효과 |
+| 플래너 (규칙으로 대체) | 플래너 효과 |
 
 #### 4.5.5 민감도
 
 | 변수 | 범위 |
 |---|---|
-| 노드 수 | 2–4 stage (Qwen3-1.7B 2-stage, Qwen3-4B 3·4-stage) |
-| 네트워크 대역폭 | `tc`로 100Mbps, 300Mbps, 1Gbps. 선택: USB 2.5GbE |
-| 모델 | Qwen3-1.7B FP16, Qwen3-4B FP16, Qwen3-8B Q8_0 (llama.cpp RPC, O1–O3만) |
-| 요청 도착률 | 30–90% |
-| 컨텍스트 길이 | 2k–16k |
-| 체크포인트 크기와 간격 | stage당 35MB–0.4GB, 10–50 step |
-| 학습 비율 | 0–50% |
+| 노드·stage 수 | 2–4 |
+| 네트워크 | `tc` 100M/300M/1G, 선택 USB 2.5GbE |
+| 모델 | Qwen3-1.7B FP16, Qwen3-4B FP16, Qwen3-8B Q8_0(llama.cpp RPC, O1–O3) |
+| 설비 수 | 4/8/16 |
+| 레코드 주기 | 2/10/30초 |
+| 컨텍스트 한계 | 4k/8k/16k |
+| 배치 간격 | 1/5/15분 |
+| 질의 분포 | 균등 / Zipf |
+| 도착률 | 30–90% |
+| 체크포인트 | 35MB–0.4GB, 10–50 step |
+| LoRA 범위 | LG9–11 / LG6–11 / 전체 |
 | 캐시 상한 | 256MB–기본값 |
-| 수집률 | 0–60MB/s |
-| 전력 모드 | 7W, 15W, 최대 모드 |
+| 전력 모드 | 7W/15W/최대 |
 
 #### 4.5.6 규모 확장 시뮬레이션
 
-1. 비용 모델과 측정 파라미터로 트레이스 기반 시뮬레이터를 만든다.
-2. 5노드 실측 결과와 비교해 오차를 보고한다.
-3. 8, 16, 32노드에서 B0, B2, B3, B4의 차이를 비교한다.
+비용 모델과 측정 파라미터로 트레이스 기반 시뮬레이터를 만들고, 5노드 실측과의 오차를 보고한 뒤, 노드 8–32대와 설비 16–128개에서 B0, B2, B8, B4를 비교한다.
 
 ### 4.6 예상 그림과 표
 
 | 번호 | 내용 | 섹션 |
 |---|---|---|
-| Fig.1 | 엣지 LLM 라이프사이클과 하이퍼컨버지드 Orin Nano 클러스터 구조 | I |
-| Fig.2 | Lustre 레이아웃 기능 (striping, PFL, FLR) | II |
-| Table 1 | 관련 연구 종합 비교 (2.8절 표) | II |
-| Table 2 | Orin Nano 노드별 메모리 예산 (3.1.3절 표, 실측) | II 또는 III |
-| Fig.3 | O1 경로별 대역폭, striping 효과, NIC 경쟁 | III |
-| Fig.4 | O2 부하 대비 tokens/s, 캐시 상한별 KV 가용량과 PSI | III |
-| Fig.5 | O3 배치 방식별 파이프라인 처리량 | III |
-| Fig.6 | O4 prefill vs KV 로드 (경로별), 메모리 구성 | III |
-| Fig.7 | O5 체크포인트·복제 중 TTFT 시계열 | III |
-| Fig.8 | O6 복구 방식별 시간, 재분할 이동량, 이벤트 타임라인 | III |
+| Fig.1 | 엣지 LLM 라이프사이클, 설비 컨텍스트, 하이퍼컨버지드 클러스터 | I |
+| Fig.2 | 슬라이딩 윈도우에서 prefix 재사용이 깨지는 예 | II |
+| Fig.3 | Lustre 레이아웃 기능 | II |
+| Table 1 | 관련 연구 종합 비교 (2.9절) | II |
+| Table 2 | Orin Nano 메모리 예산 (실측) | II/III |
+| Fig.4–10 | O1–O7 결과 | III |
 | Table 3 | 관찰-설계 대응표 | III |
-| Fig.9 | 시스템 아키텍처 (3.9.5절) | IV |
-| Fig.10 | LG 기반 배치, OST0 mirror, 대체 분할 예시 | IV |
-| Table 4 | 원 IFLustre 정책과의 대응 (3.9.7절) | IV |
-| Fig.11 | S1 end-to-end 시간축 결과 | V |
-| Fig.12 | S2 서빙 성능 비교 (B7 포함) | V |
-| Fig.13 | S3, S4 공동 학습·체크포인트·전환 결과 | V |
-| Fig.14 | S5 장애 복구 | V |
-| Fig.15 | S6 플래너 비교와 오버헤드 | V |
-| Fig.16 | Ablation | V |
-| Fig.17 | 민감도, 시뮬레이션 | V |
+| Fig.11 | 시스템 아키텍처 | IV |
+| Fig.12 | 이름·위치·정책 분리와 주소 구조 (체인 해시, 어댑터 범위) | IV |
+| Fig.13 | 경계 activation 기반 부분 재생성 | IV |
+| Fig.14 | LG 배치, OST0 mirror, 대체 분할 | IV |
+| Table 4 | 원 IFLustre 정책 대응 | IV |
+| Fig.15–21 | S1–S7 결과 | V |
+| Fig.22 | Ablation | V |
+| Fig.23 | 민감도, 시뮬레이션 | V |
 
 ---
 
 ## 5. 논문 구성 대응
 
-| 논문 섹션 | 내용 | 이 문서의 대응 절 |
+| 논문 섹션 | 내용 | 이 문서 |
 |---|---|---|
-| I. Introduction | 배경, 문제, 기존 연구 공백, 접근, 기여 | 1 |
-| II. Background and Motivation | IoT와 엣지, Jetson Orin Nano, IoT LLM, LLM 구조와 I/O, Lustre, IFLustre, 관련 연구 비교표 | 2.1–2.6, 2.8 |
-| III. Empirical Analysis | O1–O6, 관찰-설계 대응표 | 4.4 |
-| IV. Design | 문제 정의, 비용 모델, ⑧②⑤③⑦ 설계, 통합 구성, 구현 | 3 |
-| V. Evaluation | 비교 대상, 시나리오, 결과, ablation, 민감도 | 4.5 |
-| VI. Discussion | 규모 한계, MDS 단일 장애점, 다른 DFS로의 일반화, 더 큰 장비(Orin NX/AGX)로의 확장, 전력 | 7 |
-| VII. Related Work | 2.7절 분류를 압축 | 2.7 |
+| I. Introduction | 배경, IoT 질의 구조, 두 문제, 공백, CoStripe, 기여 | 1 |
+| II. Background and Motivation | IoT·엣지, Jetson, IoT LLM, LLM 구조·KV 재사용·I/O, CAS, Lustre, IFLustre, 관련 연구 | 2 |
+| III. Empirical Analysis | O1–O7, 관찰-설계 대응표 | 4.4 |
+| IV. Design | 문제 정의, 비용 모델, ⑧②⑤③⑦, 통합 구성, 구현 | 3 |
+| V. Evaluation | 비교 대상, S1–S7, ablation, 민감도, 시뮬레이션 | 4.5 |
+| VI. Discussion | 규모, MDS 단일 장애점, 다른 DFS, 큰 장비, 근사 재사용과의 결합, 보안 | 7 |
+| VII. Related Work | 2.8 압축 | 2.8 |
 | VIII. Conclusion | | |
 
-**IEEE IoTJ 투고 관련**
-- 이전 버전(MASCOTS 2022)과의 차이는 3.9.7절 표와 2.6.3절 표로 설명한다.
-- 이전 IoTJ 심사 의견에 대한 응답은 별도 문서(`docs/response.md`, 예정)로 관리한다.
+**IEEE IoTJ 투고 관련:** 이전 버전과의 차이는 2.7.3절과 3.9.7절 표로 설명한다. 심사 의견 응답서는 `docs/response.md`(예정)로 관리한다.
 
 ---
 
 ## 6. 일정
 
-| 단계 | 기간 | 작업 | 산출물 | 논문 위치 |
-|---|---|---|---|---|
-| P0 | 1주 | 장비 사양 기록, 사전 점검 C1–C9, 메모리 예산 실측 | 4.1절 표, 3.1.3절 표 갱신 | III 설정 |
-| P1 | 3–4주 | Lifecycle harness 구현 (W1, 샘플 생성, 파이프라인 서빙 + 공동 학습 런타임, KV manager, checkpoint manager, telemetry, place(), LG 변환 도구) | 실행 가능한 harness | IV 구현 |
-| P2 | 2주 | O1–O6 측정 | Fig.3–8 | III |
-| P3 | 1주 | 비용 모델 파라미터 피팅, 예측 오차 검증 | 비용 모델, 오차 결과 | IV |
-| P4 | 2주 | LG 기반 배치, OST0 mirror·대체 분할, 규칙 정책, Executor | B4 구성 | IV |
-| P5 | 1주 | 플래너, 검증기, Search-only, B7 | B3, B5, B7 구성 | IV |
-| P6 | 2주 | 평가 S1–S6, ablation, 민감도, 시뮬레이션 | Fig.11–17 | V |
-| P7 | 1–2주 | 집필, 심사 의견 응답서 | 원고 | 전체 |
+| 단계 | 기간 | 작업 | 논문 위치 |
+|---|---|---|---|
+| P0 | 1주 | 장비·네트워크·Lustre 기록, C1–C9, 하이퍼컨버지드 전환 계획 | III 설정 |
+| P1 | 4주 | harness 구현: 파이프라인 런타임, KV Store(주소·pack·인덱스), Context Builder, Prefill Scheduler, Compactor, 경계 activation, 상위 LG 학습, telemetry, place() / C6, C7, C10, C11 | IV 구현 |
+| P2 | 2주 | O1–O7 측정 | III |
+| P3 | 1주 | 비용 모델 피팅, 오차 검증 | IV |
+| P4 | 2주 | LG 배치, 상주 조정, 백그라운드 I/O 제어, 대체 분할, 규칙 정책 | IV |
+| P5 | 1주 | 플래너, 검증기, Search-only, B7, B8 | IV |
+| P6 | 2주 | S1–S7, ablation, 민감도, 시뮬레이션 | V |
+| P7 | 1–2주 | 집필, 응답서 | 전체 |
 
 ---
 
-## 7. 리스크
+## 7. 리스크와 예상 반론
 
-| 리스크 | 영향 | 대응 |
-|---|---|---|
-| PyTorch 런타임 메모리가 추정보다 큼 | stage 메모리 초과, KV 공간 부족 | C5에서 실측한다. 초과하면 ① LG를 5개 노드(N0 포함)에 나누거나, ② 서빙 모델을 Qwen3-1.7B FP16 2-stage로 낮추거나, ③ 가중치를 INT8 weight-only로 바꾼다. |
-| 파이프라인 공동 학습 구현 난이도 | 일정 지연 | ① 상위 layer(stage 3–4)에만 LoRA를 적용해 backward 범위를 줄인다. ② 서빙을 멈춘 적응 시간대에만 학습한다(체크포인트·복제 I/O는 그대로 측정). |
-| client + OSS 동시 운용 불안정 (8GB) | 실험 진행 불가 | C3에서 확인한다. 캐시 상한, 메모리 예약, zram 설정으로 대응한다. 문제 정의의 근거로도 사용한다. |
-| β가 작게 측정됨 | 연산 감속 항의 비중 감소 | 메모리 용량(cache_k → KV 수용량)과 네트워크(A_k, F_k) 중심으로 서술한다. 비용 모델은 그대로 쓴다. |
-| LLM 플래너가 Search-only보다 성능이 낮음 | ⑦의 기여 약화 | 정책 해석, 처음 보는 시나리오, 이벤트 대응 결과를 그대로 보고한다. 주 기여는 LG 기반 공동 결정과 메모리·네트워크 인지 배치로 둔다. |
-| 플래너 결정 지연이 김 (Orin Nano) | slow path 지연 | prompt cache, 출력 길이 제한, Qwen3-1.7B로 교체 비교 |
-| Lustre 기능 미지원 (FLR, PFL, TBF 버전 차이) | 일부 조치 불가 | C1에서 확인한다. 미지원 기능은 대체 수단(파일 복사로 mirror, 사용자 공간 속도 제한)을 쓴다. |
-| 노드에 NVMe가 없거나 microSD에 OST를 둠 | 저장 대역폭이 매우 낮음 | NVMe 장착을 전제로 한다. 장착이 불가능한 노드는 결과에 명시하고 민감도로 다룬다. |
-| N0 장애 (MDS 단일 장애점) | 파일 시스템 중단 | 본 연구 범위 밖으로 명시한다. Discussion에서 MDS 이중화를 다룬다. |
-| 노드 수가 5대뿐임 | 일반화 의문 | 엣지 사이트 규모가 원래 작다는 점을 서술한다. 비용 모델 기반 시뮬레이션으로 확장한다. |
-| 일정 지연 | 평가 축소 | ⑦은 마지막 단계에서 결합하므로 나머지 구성은 영향을 받지 않는다. |
+### 7.1 기술 리스크
+
+| 리스크 | 대응 |
+|---|---|
+| PyTorch 런타임 메모리가 추정보다 큼 | C5 실측. 초과 시 5-stage(N0 포함), Qwen3-1.7B 2-stage, INT8 weight-only 순으로 조정 |
+| 파이프라인·KV Store 구현량 | 상위 LG 한정 학습으로 학습 범위 축소. KV Store는 pack·경로 계산 중심으로 단순화(전역 인덱스는 공유 prefix만) |
+| KV 직렬화·재생성 정확성 | C10, C11에서 토큰 일치와 오차를 검증한 뒤 진행 |
+| 레코드 토큰화 결정성 | 레코드별 독립 토큰화, 토크나이저 버전을 주소에 포함 |
+| client + OSS 동시 운용 불안정 | C3, 캐시 상한, 메모리 예약 |
+| β가 작게 측정됨 | 메모리·네트워크 항과 KV 재사용 구조(②) 중심으로 서술 |
+| 수집 시점 prefill의 유휴 연산 부족 | 배치 간격 확대, 우선 설비만 사전 계산, 나머지는 질의 시점 계산 |
+| 상위 LG LoRA의 적응 품질 부족 | LG6–11로 범위 확대 후 재생성 비용과 함께 보고 |
+| 플래너가 Search-only보다 낮음 | 정책 해석·이벤트 대응 결과를 보고하고, 주 기여는 ②⑧로 둔다. |
+| Lustre 기능 미지원 | C1에서 확인, 대체 수단 사용 |
+| 실제 구성이 분리형 | 전환 계획에 따라 하이퍼컨버지드로 전환. 분리형은 비교 기준으로 활용 |
+| MDS 단일 장애점 | 범위 밖으로 명시, Discussion |
+
+### 7.2 예상 반론과 대응
+
+| 반론 | 대응 |
+|---|---|
+| "DFS가 왜 필요한가? 로컬 디스크로 충분하지 않나" | 설비 KV 로그는 메모리보다 크고, 여러 질의가 공유하며, 재분할·장애 후에도 유지되어야 한다. Local-replica(B1)와 비교해 재분할·장애·어댑터 전환에서의 차이를 보인다. |
+| "locality는 오래된 개념이다" | 로컬 배치가 병목 stage의 연산과 메모리를 잠식하는 trade-off를 실측(O2, O3)과 비용 모델로 보인다. 수집 시점 prefill과 재생성 같은 새로운 I/O 클래스의 배치를 다룬다. |
+| "KV 사전 계산은 TurboRAG, MemLLM에 있다" | 고정 문서가 아닌 계속 늘어나는 스트림, 근사 없는 이어 쓰기 재사용, 압축 epoch, 어댑터 범위 기반 주소와 부분 재생성, 공유 엣지 DFS 배치가 차이이다. |
+| "content addressing은 vLLM, LMCache도 쓴다" | 그들은 질의 시점 생성과 메모리·분리형 풀을 다룬다. 본 연구는 이름·위치·정책 분리, 버전 범위 주소, 의미 기반 묶음·압축·상주를 저장 계층에서 다룬다. |
+| "5대는 작다" | 엣지 사이트 규모가 원래 작다. 시뮬레이션으로 확장한다. |
+| "LLM 플래너가 왜 필요한가" | Search-only를 비교 대상에 넣는다. 플래너의 가치는 의미 정책 해석과 이벤트 대응에 둔다. |
+
+### 7.3 기여 판단 기준
+
+P0와 O1–O7 결과로 투고 대상을 판단한다.
+- **조건:** 다음 둘 중 하나가 크게 나타나는지 본다.
+  - 다른 노드 I/O에 의한 메모리 잠식이나 로컬 I/O에 의한 감속(O2, O3)
+  - 슬라이딩 윈도우 대비 수집 시점 prefill의 TTFT 개선(O7)
+- **크게 나타나면:** IoTJ 외에 상위 시스템 학회 버전을 검토한다.
+- **작게 나타나면:** IoTJ에 집중한다.
 
 ---
 
 ## 8. 미결 사항
 
-- [ ] 각 노드의 개발자 키트 종류(Super 여부), JetPack 버전, 전력 모드
-- [ ] 각 노드의 NVMe 장착 여부, 모델, 용량, raw 대역폭
-- [ ] OS 설치 위치 (microSD / NVMe)
-- [ ] zram 스왑 설정
-- [ ] 스위치와 NIC 실측 대역폭 (iperf3)
-- [ ] Lustre 버전, OSD 백엔드, 기능 지원 여부 (C1), `max_cached_mb` 기본값
-- [ ] PyTorch CUDA 초기화 후 메모리 사용량 실측 (3.1.3절 표 갱신)
-- [ ] Jetson 사양 수치의 공식 datasheet 확인 (2.2절 표)
+- [ ] 노드별 Super 여부, JetPack, 전력 모드
+- [ ] 노드별 NVMe 장착 여부, 모델, 용량, raw 대역폭
+- [ ] OS 설치 위치
+- [ ] zram 설정
+- [ ] 유선·무선 경로와 LNet NID 인터페이스 (같은 대역 사용 문제)
+- [ ] 유선 NIC 실측 대역폭
+- [ ] Lustre 버전, 백엔드, 기능 지원, `max_cached_mb` 기본값
+- [ ] 하이퍼컨버지드 전환 방안 결정 (P0 계획서)
+- [ ] PyTorch 메모리 사용량 실측
+- [ ] Jetson 사양 수치 공식 확인
 - [x] 논문 제목과 시스템 이름: CoStripe (가제, 투고 전 최종 확인)
+- [ ] 제목에 KV 저장 구조(content-addressed)를 반영할지 여부
 - [ ] 이전 IoTJ 심사 의견 정리와 반영 범위
 - [ ] 기존 루트 스크립트의 `legacy/` 이동 여부
 - [ ] 참고 문헌 서지 정보 원문 확인
@@ -1961,123 +1926,122 @@ III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 �
 투고 전에 서지 정보를 원문으로 다시 확인한다.
 
 ### 원 연구
-
 - S. Kim, D. K. Sung, Y. Son, "IFLustre: Towards Interference-free and Efficient Storage Allocation in Distributed File System," MASCOTS 2022.
 - "Interference-free and Efficient Storage Allocation for IoT Applications in Distributed File System on Cloud Environment," IEEE IoTJ (Reject & Resubmit).
 
 ### IoT 데이터와 LLM-IoT
-
-- N. Koroniotis et al., "Towards the Development of Realistic Botnet Dataset in the Internet of Things for Network Forensic Analytics: Bot-IoT Dataset," FGCS, 2019.
-- Z. Yang et al., "Widar 3.0: WiFi-based Activity Recognition Dataset," IEEE Dataport, 2020.
-- H. Purohit et al., "MIMII Dataset: Sound Dataset for Malfunctioning Industrial Machine Investigation and Inspection," arXiv:1909.09347, 2019.
+- N. Koroniotis et al., "Bot-IoT Dataset," FGCS, 2019.
+- Z. Yang et al., "Widar 3.0," IEEE Dataport, 2020.
+- H. Purohit et al., "MIMII Dataset," arXiv:1909.09347, 2019.
 - P. Zhu et al., "Detection and Tracking Meet Drones Challenge," IEEE TPAMI, 2021.
-- J. Huh et al., "EPIC-SOUNDS: A Large-Scale Dataset of Actions that Sound," ICASSP 2023.
-- L. Bhatia et al., "LoED: The LoRaWAN at the Edge Dataset," Workshop on Data: Acquisition to Analysis, 2020.
-- A. Shukla, S. Chaturvedi, Y. Simmhan, "RIoTBench: An IoT Benchmark for Distributed Stream Processing Systems," Concurrency and Computation: Practice and Experience, 2017.
+- J. Huh et al., "EPIC-SOUNDS," ICASSP 2023.
+- L. Bhatia et al., "LoED: The LoRaWAN at the Edge Dataset," 2020.
+- A. Shukla, S. Chaturvedi, Y. Simmhan, "RIoTBench," Concurrency and Computation: Practice and Experience, 2017.
 - J. Zhu et al., "Loghub: A Large Collection of System Log Datasets for AI-driven Log Analytics," ISSRE 2023.
 - "When IoT Meet LLMs: Applications and Challenges," arXiv:2411.17722, 2024.
-- O. Friha et al., "LLM-Based Edge Intelligence: A Comprehensive Survey on Architectures, Applications, Security and Trustworthiness," IEEE Open Journal of the Communications Society, 2024.
+- O. Friha et al., "LLM-Based Edge Intelligence: A Comprehensive Survey," IEEE OJ-COMS, 2024.
 
 ### 하드웨어
-
-- NVIDIA, "Jetson Orin Nano Super Developer Kit" 및 Jetson Orin 모듈 datasheet.
+- NVIDIA, Jetson Orin Nano Super Developer Kit 및 Jetson Orin 모듈 datasheet.
 
 ### Lustre와 DFS
-
-- P. J. Braam, P. Schwan, "Lustre: The Intergalactic File System," Ottawa Linux Symposium, 2002.
+- P. J. Braam, P. Schwan, "Lustre: The Intergalactic File System," OLS 2002.
 - Y. Qian et al., "A Configurable Rule based Classful Token Bucket Filter Network Request Scheduler for the Lustre File System," SC 2017.
-- S. A. Weil et al., "Ceph: A Scalable, High-Performance Distributed File System," OSDI 2006.
-- Lustre Operations Manual (PFL, DoM, FLR, NRS TBF, Job Stats, CPT, `llite.*.max_cached_mb`).
+- S. A. Weil et al., "Ceph," OSDI 2006.
+- Lustre Operations Manual (PFL, DoM, FLR, NRS TBF, Job Stats, CPT, `max_cached_mb`).
+
+### Content-addressed 저장
+- A. Muthitacharoen, B. Chen, D. Mazières, "A Low-bandwidth Network File System," SOSP 2001.
+- S. Quinlan, S. Dorward, "Venti: A New Approach to Archival Storage," FAST 2002.
+- B. Zhu, K. Li, H. Patterson, "Avoiding the Disk Bottleneck in the Data Domain Deduplication File System," FAST 2008.
+- J. Benet, "IPFS — Content Addressed, Versioned, P2P File System," arXiv:1407.3561, 2014.
 
 ### 저장 I/O 간섭과 QoS
-
-- M. Dorier et al., "CALCioM: Mitigating I/O Interference in HPC Systems through Cross-Application Coordination," IPDPS 2014.
-- T. Patel et al., "GIFT: A Coupon Based Throttle-and-Reward Mechanism for Fair and Efficient I/O Bandwidth Management on Parallel Storage Systems," FAST 2020.
-- B. Wadhwa et al., "iez: Resource Contention Aware Load Balancing for Large-Scale Parallel File Systems," IPDPS 2019.
-- Y. Hua et al., "LoomIO: Object-Level Coordination in Distributed File Systems," IEEE TPDS, 2021.
-- G. Yang et al., "Radio: Reconciling Disk I/O Interference in a Para-virtualized Cloud," IEEE CLOUD 2022.
+- M. Dorier et al., "CALCioM," IPDPS 2014.
+- T. Patel et al., "GIFT," FAST 2020.
+- B. Wadhwa et al., "iez," IPDPS 2019.
+- Y. Hua et al., "LoomIO," IEEE TPDS, 2021.
+- G. Yang et al., "Radio," IEEE CLOUD 2022.
 - L. N. Jaliminche et al., "Enabling Multi-tenancy on SSDs with Accurate IO Interference Modeling," SoCC 2023.
-- Y. Zhou et al., "CoFS: A Collaboration-Aware Fairness Scheme for NVMe SSD in Cloud Storage System," IEEE TCAD, 2024.
-- S. Kim et al., "DCA-IO: A Dynamic I/O Control Scheme for Parallel and Distributed File Systems," CCGrid 2019.
+- Y. Zhou et al., "CoFS," IEEE TCAD, 2024.
+- S. Kim et al., "DCA-IO," CCGrid 2019.
 - S. Kim et al., "Towards HPC I/O Performance Prediction through Large-scale Log Analysis," HPDC 2020.
-- D. K. Sung et al., "A2FL: Autonomous and Adaptive File Layout in HPC through Real-time Access Pattern Analysis," IPDPS 2024.
+- D. K. Sung et al., "A2FL," IPDPS 2024.
 - E. Costa et al., "Systematically Inferring I/O Performance Variability by Examining Repetitive Job Behavior," SC 2021.
 
 ### 자원 공존과 간섭 격리
-
-- D. Lo et al., "Heracles: Improving Resource Efficiency at Scale," ISCA 2015.
-- S. Chen et al., "PARTIES: QoS-Aware Resource Partitioning for Multiple Interactive Services," ASPLOS 2019.
-- J. Fried et al., "Caladan: Mitigating Interference at Microsecond Timescales," OSDI 2020.
-- H. Yun et al., "MemGuard: Memory Bandwidth Reservation System for Efficient Performance Isolation in Multi-core Platforms," RTAS 2013.
+- D. Lo et al., "Heracles," ISCA 2015.
+- S. Chen et al., "PARTIES," ASPLOS 2019.
+- J. Fried et al., "Caladan," OSDI 2020.
+- H. Yun et al., "MemGuard," RTAS 2013.
 
 ### LLM 서빙, 로딩, 오프로딩
-
 - W. Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention," SOSP 2023.
-- L. Zheng et al., "SGLang: Efficient Execution of Structured Language Model Programs," NeurIPS 2024.
-- Y. Fu et al., "ServerlessLLM: Low-Latency Serverless Inference for Large Language Models," OSDI 2024.
-- K. Alizadeh et al., "LLM in a flash: Efficient Large Language Model Inference with Limited Memory," ACL 2024.
-- Y. Song et al., "PowerInfer: Fast Large Language Model Serving with a Consumer-grade GPU," SOSP 2024.
-- Z. Xue et al., "PowerInfer-2: Fast Large Language Model Inference on a Smartphone," arXiv:2406.06282, 2024.
-- Y. Sheng et al., "FlexGen: High-Throughput Generative Inference of Large Language Models with a Single GPU," ICML 2023.
+- L. Zheng et al., "SGLang," NeurIPS 2024.
+- Y. Fu et al., "ServerlessLLM," OSDI 2024.
+- K. Alizadeh et al., "LLM in a flash," ACL 2024.
+- Y. Song et al., "PowerInfer," SOSP 2024.
+- Z. Xue et al., "PowerInfer-2," arXiv:2406.06282, 2024.
+- Y. Sheng et al., "FlexGen," ICML 2023.
 - "An I/O Characterizing Study of Offloading LLM Models and KV Caches to NVMe SSD," ACM, 2025 (DOI 10.1145/3719330.3721230).
 
-### KV cache 저장과 재사용
-
-- B. Gao et al., "Cost-Efficient Large Language Model Serving for Multi-turn Conversations with CachedAttention," USENIX ATC 2024.
+### KV cache 저장, 재사용, 사전 계산
+- B. Gao et al., "CachedAttention," USENIX ATC 2024.
 - R. Qin et al., "Mooncake: Trading More Storage for Less Computation — A KVCache-centric Architecture for Serving LLM Chatbot," FAST 2025.
 - Y. Cheng et al., "LMCache: An Efficient KV Cache Layer for Enterprise-Scale LLM Inference," arXiv:2510.09665, 2025.
-- Y. Liu et al., "CacheGen: KV Cache Compression and Streaming for Fast Large Language Model Serving," SIGCOMM 2024.
-- J. Yao et al., "CacheBlend: Fast Large Language Model Serving for RAG with Cached Knowledge Fusion," EuroSys 2025.
-- W. Chen et al., "IMPRESS: An Importance-Informed Multi-Tier Prefix KV Storage System for Large Language Model Inference," FAST 2025.
-- "KVSwap: Disk-aware KV Cache Offloading for Long-Context On-device Inference," arXiv:2511.11907, 2025.
-- "DUAL-BLADE: Dual-Path NVMe-Direct KV-Cache Offloading for Edge LLM Inference," arXiv:2604.26557, 2026.
-- "MemLLM: End-to-end In-Storage Acceleration of On-device Retrieval-Augmented Generation using Precomputed KV Caches," arXiv:2610.22579, 2026.
+- Y. Liu et al., "CacheGen," SIGCOMM 2024.
+- W. Chen et al., "IMPRESS," FAST 2025.
+- I. Gim et al., "Prompt Cache: Modular Attention Reuse for Low-Latency Inference," MLSys 2024.
+- J. Yao et al., "CacheBlend," EuroSys 2025.
+- J. Hu et al., "EPIC: Efficient Position-Independent Context Caching for Serving Large Language Models," arXiv:2410.15332 (ICML 2025).
+- S. Lu et al., "TurboRAG: Accelerating Retrieval-Augmented Generation with Precomputed KV Caches for Chunked Text," arXiv:2410.07590, 2024.
+- "MemLLM," arXiv:2610.22579, 2026.
+- Z. Zhang et al., "H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models," NeurIPS 2023.
+- Y. Li et al., "SnapKV," NeurIPS 2024.
+
+### 엣지 KV 오프로딩
+- "KVSwap," arXiv:2511.11907, 2025.
+- "DUAL-BLADE," arXiv:2604.26557, 2026.
 - "Multi-tier Dynamic Storage of KV Cache for LLM Inference under Resource-constrained Conditions," Complex & Intelligent Systems, 2025.
 
 ### 엣지 분산 추론
-
-- Y. Hu et al., "PipeEdge: Pipeline Parallelism for Large-Scale Model Inference on Heterogeneous Edge Devices," Euromicro DSD 2022.
-- M. Zhang et al., "EdgeShard: Efficient LLM Inference via Collaborative Edge Computing," IEEE Internet of Things Journal, vol. 12, no. 10, 2025 (DOI 10.1109/JIOT.2024.3524255).
-- S. Ye et al., "Galaxy: A Resource-Efficient Collaborative Edge AI System for In-situ Transformer Inference," INFOCOM 2024.
-- "LOIP: Collaborative Lossless LLM Inference Serving with Offloading-based Pipeline Parallelism on Edge Devices," arXiv:2512.21835, 2025.
-- Z. Li et al., "Prima.cpp: Fast 30-70B LLM Inference on Heterogeneous and Low-Resource Home Clusters," arXiv:2504.08791, 2025.
-- exo (open-source distributed inference), llama.cpp RPC backend.
+- Y. Hu et al., "PipeEdge," Euromicro DSD 2022.
+- M. Zhang et al., "EdgeShard," IEEE IoTJ, vol. 12, no. 10, 2025 (DOI 10.1109/JIOT.2024.3524255).
+- S. Ye et al., "Galaxy," INFOCOM 2024.
+- "LOIP," arXiv:2512.21835, 2025.
+- Z. Li et al., "Prima.cpp," arXiv:2504.08791, 2025.
 
 ### 엣지 학습, 공동 실행, 어댑터
-
-- E. J. Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models," ICLR 2022.
-- T. Dettmers et al., "QLoRA: Efficient Finetuning of Quantized LLMs," NeurIPS 2023.
-- L. Zhu et al., "PockEngine: Sparse and Efficient Fine-tuning in a Pocket," MICRO 2023.
-- "MobiZO: Enabling Efficient LLM Fine-Tuning at the Edge via Inference Engines," EMNLP 2025.
-- X. Miao, G. Oliaro et al., "FlexLLM: Token-Level Co-Serving of LLM Inference and Finetuning with SLO Guarantees," arXiv:2402.18789 (초기 제목: "FlexLLM: A System for Co-Serving Large Language Model Inference and Parameter-Efficient Finetuning").
-- "ConServe: Fine-Grained GPU Harvesting for LLM Online and Offline Co-Serving," arXiv:2410.01228, 2024.
-- "DeltaServe: Host-Agnostic Co-Serving of Inference and Fine-Tuning for LLMs," arXiv:2607.28848, 2026.
-- Y. Sheng et al., "S-LoRA: Serving Thousands of Concurrent LoRA Adapters," MLSys 2024.
-- L. Chen et al., "Punica: Multi-Tenant LoRA Serving," MLSys 2024.
-- "EdgeLoRA: An Efficient Multi-Tenant LLM Serving System on Edge Devices," arXiv:2507.01438, 2025.
+- E. J. Hu et al., "LoRA," ICLR 2022.
+- T. Dettmers et al., "QLoRA," NeurIPS 2023.
+- L. Zhu et al., "PockEngine," MICRO 2023.
+- "MobiZO," EMNLP 2025.
+- X. Miao, G. Oliaro et al., "FlexLLM: Token-Level Co-Serving of LLM Inference and Finetuning with SLO Guarantees," arXiv:2402.18789.
+- "ConServe," arXiv:2410.01228, 2024.
+- "DeltaServe," arXiv:2607.28848, 2026.
+- Y. Sheng et al., "S-LoRA," MLSys 2024.
+- L. Chen et al., "Punica," MLSys 2024.
+- "EdgeLoRA," arXiv:2507.01438, 2025.
 
 ### 학습 체크포인트
-
-- J. Mohan et al., "CheckFreq: Frequent, Fine-Grained DNN Checkpointing," FAST 2021.
-- A. Eisenman et al., "Check-N-Run: A Checkpointing System for Training Deep Learning Recommendation Models," NSDI 2022.
-- Z. Wang et al., "GEMINI: Fast Failure Recovery in Distributed Training with In-Memory Checkpoints," SOSP 2023.
-- A. Maurya et al., "DataStates-LLM: Lazy Asynchronous Checkpointing for Large Language Models," HPDC 2024.
-- B. Wan et al., "ByteCheckpoint: A Unified Checkpointing System for Large Foundation Model Development," NSDI 2025.
+- J. Mohan et al., "CheckFreq," FAST 2021.
+- A. Eisenman et al., "Check-N-Run," NSDI 2022.
+- Z. Wang et al., "GEMINI," SOSP 2023.
+- A. Maurya et al., "DataStates-LLM," HPDC 2024.
+- B. Wan et al., "ByteCheckpoint," NSDI 2025.
 
 ### LLM 기반 시스템 튜닝
-
-- C. Egersdoerfer et al., "ION: Navigating the HPC I/O Optimization Journey using Large Language Models," HotStorage 2024.
-- C. Egersdoerfer et al., "STELLAR: Storage Tuning Engine Leveraging LLM Autonomous Reasoning for High Performance Parallel File Systems," SC 2025 (DOI 10.1145/3712285.3759887).
-- I. Trummer, "DB-BERT: A Database Tuning Tool that Reads the Manual," SIGMOD 2022.
-- J. Lao et al., "GPTuner: A Manual-Reading Database Tuning System via GPT-Guided Bayesian Optimization," VLDB 2024.
-- V. Giannakouris, I. Trummer, "λ-Tune: Harnessing Large Language Models for Automated Database System Tuning," SIGMOD 2025.
+- C. Egersdoerfer et al., "ION," HotStorage 2024.
+- C. Egersdoerfer et al., "STELLAR," SC 2025 (DOI 10.1145/3712285.3759887).
+- I. Trummer, "DB-BERT," SIGMOD 2022.
+- J. Lao et al., "GPTuner," VLDB 2024.
+- V. Giannakouris, I. Trummer, "λ-Tune," SIGMOD 2025.
 
 ### 모델과 트레이스
-
 - Qwen Team, "Qwen3 Technical Report," arXiv:2505.09388, 2025.
-- Y. Wang et al., "BurstGPT: A Real-world Workload Dataset to Optimize LLM Serving Systems," arXiv:2401.17644, 2024.
-- P. Patel et al., "Splitwise: Efficient Generative LLM Inference Using Phase Splitting," ISCA 2024 (Azure LLM inference trace).
-- Mooncake traces (FAST 2025 공개 트레이스).
+- Y. Wang et al., "BurstGPT," arXiv:2401.17644, 2024.
+- P. Patel et al., "Splitwise," ISCA 2024 (Azure LLM inference trace).
+- Mooncake traces (FAST 2025 공개).
 
 ---
 
@@ -2087,56 +2051,59 @@ III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 �
 
 | 항목 | 값 |
 |---|---|
-| vocab | 151,936 |
-| hidden | 2,560 |
-| layer 수 | 36 |
+| vocab / hidden / layer | 151,936 / 2,560 / 36 |
 | Q head / KV head / head 차원 | 32 / 8 / 128 |
-| Q projection 출력 차원 | 32 × 128 = 4,096 (hidden 2,560과 다름) |
+| Q projection 출력 | 4,096 |
 | MLP intermediate | 9,728 |
-| 임베딩 공유 | 예 (입력 임베딩 = 출력 head) |
+| 임베딩 공유 | 예 |
 
-### A.2 크기 계산
+### A.2 가중치와 KV
 
-| 항목 | 식 | 값 |
-|---|---|---|
-| 임베딩 파라미터 | vocab × hidden | 151,936 × 2,560 ≈ 0.389B (FP16 약 0.78GB) |
-| layer당 파라미터 | q(2,560×4,096) + k(2,560×1,024) + v(2,560×1,024) + o(4,096×2,560) + MLP 3 × (2,560×9,728) + norm | ≈ 26.2M + 74.7M ≈ 100.9M |
-| 전체 파라미터 | 36 × layer + 임베딩 | ≈ 3.633B + 0.389B ≈ 4.02B (FP16 약 8.0GB) |
-| layer당 가중치 (FP16) | 100.9M × 2B | 약 0.2GB |
-| LG당 가중치 (g=3) | 3 × layer | 약 0.6GB |
-| stage 가중치 (LG 3개) | 3 × LG | 약 1.8GB (stage 1, 4는 임베딩 포함 약 2.6GB) |
-| 토큰당 KV (전체) | 2 × 36 × 8 × 128 × 2B | 147,456B = 144KiB |
-| 토큰당 KV (layer당) | 2 × 8 × 128 × 2B | 4KiB |
-| 토큰당 KV (LG당, g=3) | 3 × 4KiB | 12KiB |
-| 토큰당 KV (stage당, LG 3개) | 3 × 12KiB | 36KiB |
-| 256토큰 chunk (LG당) | 256 × 12KiB | 3MiB |
-| 8k 토큰 세션 KV | 8,192 × 144KiB | 1.125GiB (stage당 288MiB, LG 파일당 96MiB) |
-| stage 간 activation (토큰당) | hidden × 2B | 5KiB (8k prefill 시 경계당 40MiB) |
-| Prefill 연산량 (선형 항) | 2 × 파라미터 × 토큰 | 2 × 4.02e9 × 8,192 ≈ 6.6e13 FLOP |
-| Prefill 연산량 (attention 항, causal) | QK와 AV 합계: 2 × L × 4,096 × n² | 2 × 36 × 4,096 × 8,192² ≈ 2.0e13 FLOP |
+| 항목 | 값 |
+|---|---|
+| 임베딩 | 약 0.389B 파라미터, FP16 약 0.78GB |
+| layer당 | 약 100.9M 파라미터, FP16 약 0.2GB |
+| LG당 (g=3) | 약 0.6GB |
+| stage 가중치 | 약 1.8GB (stage 1·4는 임베딩 포함 약 2.6GB) |
+| KV/토큰 | 전체 144KiB, layer 4KiB, LG 12KiB, stage 36KiB |
+| chunk (256토큰) | LG 3MiB, stage 9MiB, 전체 36MiB |
+| pack (32 chunk) | LG당 96MiB |
+| 8k 컨텍스트 KV | 1.125GiB (stage 288MiB, LG 96MiB) |
+| 16k 컨텍스트 KV | 2.25GiB (stage 576MiB) |
+| 8개 컨텍스트 × 8k | stage당 2.25GiB, 전체 9GiB |
+| 경계 activation | 토큰당 5KiB, chunk 1.25MiB, 8k 컨텍스트 40MiB (KV의 약 3.5%) |
+| prefill 8k 연산량 | 선형 약 6.6e13 + attention(causal) 약 2.0e13 FLOP |
 
-### A.3 LoRA와 체크포인트
-
-| 항목 | 식 | 값 |
-|---|---|---|
-| LoRA 파라미터 (layer당, rank 16, q/k/v/o) | 16 × [(2,560+4,096) + (2,560+1,024) × 2 + (4,096+2,560)] | 327,680 |
-| LoRA 전체 (rank 16) | 36 × 327,680 | 약 11.8M (FP16 어댑터 약 24MB, LG당 약 2MB, stage당 약 6MB) |
-| 체크포인트 (rank 16) | 파라미터 × (FP32 4B + Adam m, v 각 4B) | 약 142MB (stage당 약 35MB, LG당 약 12MB) |
-| LoRA 파라미터 (layer당, rank 64, 7개 linear) | 64 × [q 6,656 + k 3,584 + v 3,584 + o 6,656 + gate 12,288 + up 12,288 + down 12,288] | 3,670,016 |
-| 체크포인트 (rank 64, 7개 linear) | 36 × 3.67M × 12B | 약 1.59GB (stage당 약 0.4GB, LG당 약 132MB) |
-| 학습 메모리 (stage당, rank 16) | LoRA 파라미터·gradient·Adam(16B/파라미터) + layer 입력 저장 + layer 내부 재계산 최대치 | 약 47MB + 약 45MB + 약 60–100MB ≈ 0.15–0.3GB |
-
-### A.4 접근 시간 추정
+### A.3 수집 시점 prefill과 재생성
 
 | 항목 | 계산 | 값 |
 |---|---|---|
-| stage 가중치 로드 (로컬 NVMe) | 1.8–2.6GB ÷ 1.5–2.5GB/s | 약 1–2초 |
-| stage 가중치 로드 (원격 1GbE) | 1.8–2.6GB ÷ 117MB/s | 약 16–22초 |
-| LG 하나 원격 이동 | 0.6GB ÷ 117MB/s | 약 5초 |
-| stage KV 로드, 8k 세션 (로컬) | 288MiB ÷ 1.5–2.5GB/s | 약 0.1–0.2초 |
-| stage KV 로드, 8k 세션 (원격) | 288MiB ÷ 117MB/s | 약 2.6초 |
-| 체크포인트 복제, OST0 집중 (rank 64) | 1.59GB ÷ 117MB/s | 약 14초 |
-| decode stage 시간 (가중치 읽기 기준) | 1.8–2.6GB ÷ 68–102GB/s | 약 18–38ms |
+| 설비당 토큰 유입 | 20토큰 × 6/분 × 60분 | 시간당 약 7.2k 토큰 |
+| 8개 설비 합계 | – | 시간당 약 5.8만 토큰 |
+| 수집 시점 prefill 연산 | 선형 2 × 4.02e9 × 5.8만 + attention | 시간당 약 5e14–7e14 FLOP (유효 2–8 TFLOPS 가정 시 파이프라인 연산 약 1–6분) |
+| 압축 주기 (8k 한계, 기본 prefix 약 3.3k) | 기록 공간 약 4.7k ÷ 7.2k/시간 | 설비당 약 40분 |
+| 상위 LG 재생성 연산 | LG9–11 / 전체 | 전체 재계산의 약 25% |
+| 재생성 I/O (8k 컨텍스트당) | 경계 activation 읽기 40MiB + LG9–11 KV 쓰기 288MiB | 컨텍스트당 약 328MiB |
+
+### A.4 LoRA와 체크포인트 (LG9–11, 9 layer)
+
+| 항목 | 값 |
+|---|---|
+| rank 16, q/k/v/o, layer당 | 327,680 파라미터 |
+| 9 layer 합계 | 약 2.95M 파라미터, FP16 어댑터 약 6MB (LG당 약 2MB) |
+| 체크포인트 | 약 35MB (FP32 파라미터 + Adam m, v) |
+| rank 64, 7개 linear, 9 layer | 약 33M 파라미터, 체크포인트 약 0.4GB |
+| 학습 메모리 (N4) | 약 0.15–0.3GB |
+
+### A.5 접근 시간 추정
+
+| 항목 | 값 |
+|---|---|
+| stage 가중치 로드 (로컬 / 원격) | 약 1–2초 / 약 16–22초 |
+| LG 원격 이동 | 약 5초 |
+| stage KV 8k (로컬 / 원격) | 약 0.1–0.2초 / 약 2.6초 |
+| 체크포인트 복제 (rank 64, OST0) | 약 3.4초 |
+| decode stage 시간 | 약 18–38ms |
 
 모든 값은 4장 실험으로 확인한다.
 
@@ -2148,21 +2115,19 @@ III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 �
 
 ```json
 {
-  "event": {"type": "load_shift", "detail": "N2 PSI memory some avg10=18.4, stage2_ms p99 rose 31%"},
-  "policy": "라인 3 질의를 우선 처리한다. 주간(09-18시)에는 체크포인트 복제로 인한 TTFT 증가를 허용하지 않는다.",
-  "slo": {"ttft_p99_s": 3.0, "tpot_p99_ms": 200},
-  "partition": {"N1": [0,1,2], "N2": [3,4,5], "N3": [6,7,8], "N4": [9,10,11]},
+  "event": {"type": "policy_change", "text": "07:50부터 라인 2 교대 시작. 라인 2 질의 우선. 설비 L4-B는 점검 중"},
+  "slo": {"ttft_p99_s": 2.0, "tpot_p99_ms": 200, "lag_max_min": 10},
+  "contexts": [
+    {"id": "L2-A", "line": 2, "tokens": 6900, "resident": ["N2", "N3"], "unprefilled_records": 31},
+    {"id": "L2-B", "line": 2, "tokens": 5200, "resident": [], "unprefilled_records": 12},
+    {"id": "L4-B", "line": 4, "tokens": 7700, "resident": ["N1","N2","N3","N4"], "status": "maintenance"}
+  ],
   "nodes": {
-    "N1": {"mem_used_gb": 6.6, "kv_free_gb": 0.4, "psi_mem": 3.1, "cpu": 0.55, "emc": 0.61, "nic": 0.22, "stage_ms": 31},
-    "N2": {"mem_used_gb": 7.1, "kv_free_gb": 0.1, "psi_mem": 18.4, "cpu": 0.71, "emc": 0.66, "nic": 0.48, "stage_ms": 41},
-    "N3": {"mem_used_gb": 6.4, "kv_free_gb": 0.6, "psi_mem": 2.2, "cpu": 0.52, "emc": 0.58, "nic": 0.19, "stage_ms": 30},
-    "N4": {"mem_used_gb": 6.7, "kv_free_gb": 0.3, "psi_mem": 4.0, "cpu": 0.57, "emc": 0.60, "nic": 0.25, "stage_ms": 33},
-    "N0": {"mem_used_gb": 5.9, "nic": 0.12, "role": "control+planner"}
+    "N4": {"kv_free_gb": 0.2, "psi_mem": 6.1, "training": false},
+    "N1": {"kv_free_gb": 0.5}
   },
-  "osts": {"OST0": {"load_mbps": 12, "used_pct": 38}, "OST2": {"load_mbps": 96, "used_pct": 61}},
-  "cache_limit_mb": {"N1": 512, "N2": 512, "N3": 512, "N4": 512},
-  "adapt": {"active": true, "round": 7, "step": 40, "ratio": 0.3, "pending_replication_mb": 140},
-  "rules": ["O2: 캐시 상한 512MB에서 원격 서버 측 부하 90MB/s 이상이면 해당 노드 PSI memory가 상승한다", "..."]
+  "ingest_batch_min": {"default": 5},
+  "rules": ["O7: 상주하지 않은 stage가 하나라도 있으면 TTFT는 그 stage의 KV 읽기 시간이 결정한다", "..."]
 }
 ```
 
@@ -2171,30 +2136,73 @@ III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 �
 ```json
 {
   "actions": [
-    {"type": "set_layout", "dir": "kv/*/lg3-5", "ost": "OST2", "note": "유지 (지연 민감)"},
-    {"type": "migrate", "files": ["kv/line1-*/lg3-5"], "to_ost": "OST0", "tbf_rpc": 30},
-    {"type": "set_cache_limit", "node": "N2", "mb": 256},
-    {"type": "schedule_replication", "defer_until": "low_load", "tbf_rpc": 15},
-    {"type": "set_adapt_window", "ratio": 0.15}
+    {"type": "pause_ingest_prefill", "context": "L4-B"},
+    {"type": "set_residency", "evict": [{"context": "L4-B", "nodes": ["N1","N2","N3","N4"]}],
+     "admit": [{"context": "L2-A", "nodes": ["N1","N4"]}, {"context": "L2-B", "nodes": ["N1","N2","N3","N4"]}],
+     "at": "07:40"},
+    {"type": "set_ingest_batch", "context": ["L2-A","L2-B"], "minutes": 1, "until": "09:00"},
+    {"type": "set_objective", "priority": {"line": 2, "weight": 2.0}, "until": "09:00"}
   ],
-  "rationale": "N2의 메모리 압박과 stage 지연이 증가했다. N2 OST를 원격으로 읽는 저빈도 라인 KV를 OST0으로 옮겨 N2의 서버 측 부하를 줄인다. N2 캐시 상한을 낮추고, 주간 정책에 따라 체크포인트 복제를 미루고 학습 비율을 낮춘다."
+  "rationale": "점검 중인 L4-B의 사전 계산과 상주를 해제해 메모리를 확보한다. 교대 10분 전에 라인 2 컨텍스트를 모든 stage에 함께 상주시켜 TTFT를 상주 적중 수준으로 맞춘다. 라인 2의 배치 간격을 1분으로 줄여 꼬리 prefill을 줄인다."
 }
 ```
 
-검증기는 이 출력에 대해 메모리 제약, OST 용량, 예상 TTFT p99, N0 NIC 사용률을 계산한 뒤 적용 여부를 결정한다.
+검증기는 이 출력에 대해 stage별 상주 메모리(특히 N4), 예상 TTFT p99, 최신성 지연을 계산한 뒤 적용 여부를 결정한다.
 
 ---
 
-## 부록 C. 저장소의 기존 코드
+## 부록 C. 주소와 저장 경로 규격
+
+### C.1 주소
+
+```
+H            = BLAKE3-256 (또는 SHA-256)
+chain_0      = H("costripe/v1" ‖ model_id ‖ tokenizer_id ‖ chunk_size)
+chain_n      = H(chain_{n-1} ‖ token_ids(chunk_n))
+key(i, n)    = H(model_id ‖ adapter_scope_version(i) ‖ i ‖ chain_n)
+act_key(n)   = H(model_id ‖ "act@LG" ‖ boundary_lg ‖ chain_n)     # 경계 activation (하위 LG에 어댑터가 없으므로 버전 없음)
+```
+
+### C.2 경로
+
+```
+<MNT>/costripe/
+├── weights/<model>/lg{i}.safetensors, embed.safetensors
+├── adapters/<model>/v{n}/lg{i}.safetensors
+├── kv/<model>/<scope>/shared/line{L}/lg{i}/{seq}.pack       # 공유 prefix pack
+├── kv/<model>/<scope>/ctx/{ctx_id}/e{epoch}/lg{i}/{seq}.pack # 설비 컨텍스트 pack
+├── kv/<model>/sessions/{session_id}/lg{i}.pack               # 세션 (단기)
+├── act/<model>/ctx/{ctx_id}/e{epoch}/lg{b}/{seq}.pack       # 경계 activation
+├── index/shared.db                                           # 공유 prefix 전역 인덱스
+├── ckpt/<model>/r{round}/s{step}/lg{i}.pt
+├── iot/{dataset}/...  records/{ctx_id}/...
+└── train/r{round}/*.jsonl
+```
+
+- `<scope>`: 해당 LG에 영향을 주는 어댑터 버전. 하위 LG는 `none`, 상위 LG는 `v{n}`이다.
+- 디렉터리 단위로 default layout을 설정해 OST를 정한다. 예: `ctx/{ctx_id}/e{epoch}/lg{i}/` → LG i 소비 노드 OST.
+
+### C.3 pack 형식
+
+| 부분 | 내용 |
+|---|---|
+| 헤더 | 형식 버전, model_id, scope, LG, ctx_id, epoch, 시작 chunk 순번, chunk 크기 |
+| 엔트리 (chunk마다) | key, chain_n, 데이터 오프셋, 길이, 체크섬 |
+| 데이터 | LG의 K, V 텐서 (layer 순, FP16) |
+| 봉인 표시 | 엔트리 수 확정, 이후 불변 |
+
+---
+
+## 부록 D. 저장소의 기존 코드
 
 | 파일 | 내용 | 향후 용도 |
 |---|---|---|
-| `iotbenchlustre.py` | 데이터셋을 Lustre에 쓰는 IoT 벤치마크 (`lfs setstripe` 설정, 메타데이터·I/O 지연 측정) | W1 수집 부하 생성기 (속도 제한 모드 추가) |
-| `iotbenchhdfs.py`, `iotbenchhdfs_orig.py`, `iotBhdfs_old.py` | HDFS 대상 벤치마크 | 사용 여부 미정 |
-| `iotBench.py`, `iot0.py`, `iot1.py`, `iot2.py`, `iotr.py`, `iotmultiepic.py`, `iotmultiepic2.py` | 기존 IoT 실험 스크립트 | 참고용 |
-| `listdataset.py` | 데이터셋 디렉터리 목록 출력 | 유지 |
-| `fio.sh`, `fio0320.sh`, `fio1.sh`–`fio3.sh`, `fiodk.sh`, `fios1.sh`, `fios2.sh`, `fiovarfilesize.sh`, `2fio.sh` | fio 측정 스크립트 (파일 크기별 쓰기 등) | O1 경로 측정, O2 간섭 부하 생성 |
-| `cpfile.sh`, `config.sh` | 파일 복사, Hadoop 환경 변수 | 유지 |
+| `iotbenchlustre.py` | 데이터셋을 Lustre에 쓰는 IoT 벤치마크 | W1 수집 부하 생성기 |
+| `iotbenchhdfs*.py`, `iotBhdfs_old.py` | HDFS 벤치마크 | 사용 여부 미정 |
+| `iotBench.py`, `iot0.py`–`iot2.py`, `iotr.py`, `iotmultiepic*.py` | 기존 IoT 실험 | 참고용 |
+| `listdataset.py` | 데이터셋 목록 | 유지 |
+| `fio*.sh`, `2fio.sh` | fio 측정 | O1, O2 부하 생성 |
+| `cpfile.sh`, `config.sh` | 파일 복사, Hadoop 환경 | 유지 |
 | `readme.txt` | `lfs setstripe` 예시 | 이 문서로 대체 예정 |
 
 ---
@@ -2204,6 +2212,7 @@ III장 끝에는 관찰-설계 대응표(관찰 ID, 시사점, 설계 절)를 �
 | 날짜 | 내용 |
 |---|---|
 | 2026-10-21 | 연구 설계 초안 작성 (AGX Orin 64GB 가정, Qwen3-32B) |
-| 2026-10-21 | 논문 구조(Introduction → Background → Design → Experiment)로 재구성, 관련 연구 확장 |
-| 2026-10-21 | 대상 장비를 Jetson Orin Nano 8GB × 5, 1GbE로 변경. 서빙 모델 Qwen3-4B FP16(4-stage, LG 12개)으로 변경. 적응 학습을 서빙 파이프라인 공동 학습으로 변경. N0 역할(제어, 플래너, 전체 mirror, 장애 대체) 재정의. 간섭 분석에 메모리 용량과 1GbE 경로 추가. 3단계 체크포인트와 OST0 mirror 설계 추가 |
-| 2026-10-21 | 논문 제목(가제)과 시스템 이름 확정: "CoStripe: Interference-Aware Storage Allocation for LLM Serving and Adaptation in Hyperconverged IoT Edge Clusters" |
+| 2026-10-21 | 논문 구조로 재구성, 관련 연구 확장 |
+| 2026-10-21 | 대상 장비를 Orin Nano 8GB × 5, 1GbE로 변경. Qwen3-4B FP16, 서빙 파이프라인 공동 학습, N0 역할 재정의 |
+| 2026-10-21 | 논문 제목(가제)과 시스템 이름 CoStripe 확정 |
+| 2026-10-21 | 의미 기반 content-addressed KV 저장소로 ② 재설계: 설비 단위 이어 쓰기 컨텍스트, 수집 시점 prefill, 이름(내용)·위치(비용 모델)·정책(IoT 의미) 분리, pack 저장, 규칙 기반 압축, 상위 LG LoRA와 경계 activation 기반 부분 재생성. CAS 배경과 KV 사전 계산 관련 연구 추가, O7·S7·B8·C10·C11 추가, 현재 실제 구성(jetson0–3, jetson) 기록, 예상 반론과 판단 기준 추가 |
