@@ -1,0 +1,13 @@
+cond	llm	fio_MB_s
+lread	off	2532.9
+lwrite	off	1175.6
+lread_buf	off	1142.5
+lwrite_buf	off	254.0
+lread	on	653.1
+lwrite	on	1380.7
+lread_buf	on	1133.4
+lwrite_buf	on	428.6
+lread	on	2527.1
+lwrite	on	1576.6
+lread_buf	on	1177.5
+lwrite_buf	on	416.4

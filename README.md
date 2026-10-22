@@ -689,14 +689,14 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m2b-io-cpu-dark.svg">
-  <img alt="I/O 중 CPU 사용률: 로컬 읽기 45%, 로컬 쓰기 42%, 원격 읽기 client 측 20%, 원격 쓰기 client 측 13%, 원격 I/O를 처리하는 OSS 서버 측 2%" src="docs/figures/m2b-io-cpu-light.svg" width="620">
+  <img alt="I/O 중 CPU 사용률: 로컬 읽기 45%, 로컬 쓰기 42%, 원격 읽기 client 측 20%, 원격 쓰기 client 측 13%, 원격 I/O를 처리하는 OSS 서버 측 읽기 13%, 쓰기 19%" src="docs/figures/m2b-io-cpu-light.svg" width="620">
 </picture>
 
 | 경로 (jetson1) | 쓰기 | 읽기 | NIC 사용 | CPU (6코어 전체 대비) |
 |---|---|---|---|---|
 | 같은 노드 OST | 1,699MB/s | 2,482MB/s | 0 | 42–45% |
 | 원격 OST | 114.6MB/s | 114.8MB/s | 회선 최대 | 13–20% (client 측) |
-| 원격 I/O를 처리하는 서버 | – | – | – | 약 2% |
+| 원격 I/O를 처리하는 OSS (jetson3, M5 재측정) | – | – | – | 13% (읽기), 19% (쓰기) |
 
 **시사점:**
 - 데이터 위치에 따라 접근 속도가 15–22배 달라진다. KV와 가중치를 소비 노드의 OST에 두는 배치가 핵심이다.
@@ -719,7 +719,7 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 **시사점:**
 - 로컬에 저장한 KV를 복원하면 재계산보다 7–12배 빠르다. 복원 후 첫 토큰까지는 0.1초대이다. 데이터가 들어올 때 KV를 미리 만들어 두는 설계(4.8.2절)의 이득이 크다.
 - 원격 KV 복원은 재계산과 비슷하고, 8k에서는 오히려 느리다(약 53MB/s). 원격 KV는 재계산과 비교해 선택해야 한다.
-- 8k에서는 로컬 복원도 4k 대비 3.5배 느려졌다(크기는 2배). llama-server 실행 중 남은 메모리가 약 1.8GB여서 1.15GB 파일을 page cache로 읽으며 메모리 회수가 일어난 것으로 추정한다. KV 읽기는 page cache를 거치지 않게 해야 한다(direct I/O 또는 캐시 해제).
+- 8k에서는 로컬 복원도 4k 대비 3.5배 느려졌다(크기는 2배). llama-server 실행 중 남은 메모리가 약 1.8GB여서 1.15GB 파일을 page cache로 읽으며 메모리 회수가 일어난 것으로 추정한다. 이 측정은 서버의 호스트 RAM prompt cache가 켜진 기본 설정이어서, 앞선 1k–4k 요청의 KV가 RAM에 남아 압박을 키웠을 가능성이 크다(3.11절). KV 읽기는 page cache를 거치지 않게 해야 한다(direct I/O 또는 캐시 해제).
 - KV 파일 크기(토큰당 144KiB)는 부록 A의 계산과 일치한다.
 
 ### 3.5 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다
@@ -745,17 +745,27 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 - 8GB unified memory에서는 파일 시스템 캐시가 GPU가 쓸 메모리를 직접 줄인다. 캐시 상한은 선택이 아니라 필수이다.
 - 메모리 압박은 `MemAvailable`로는 보이지 않으므로 MemFree와 PSI로 측정해야 한다.
 
-### 3.6 관찰 M5: 다른 노드의 I/O가 서버 노드에 주는 부담은 작다
+### 3.6 관찰 M5: 다른 노드의 I/O를 처리하는 OSS는 CPU의 13–19%를 쓴다
 
-| 측정 | 결과 |
-|---|---|
-| OSS가 회선 최대 속도로 원격 I/O를 처리할 때 CPU | 약 2% (jetson1, jetson3) |
-| 같은 상황의 OSS 메모리 | 변화 없음 (서버 측 read/writethrough cache가 꺼져 있음) |
-| 예외 | jetson2에서 13–19%가 측정되었다. 측정 중 SSH 조회가 polkitd·dbus CPU를 올린 영향으로 보이며, 노드 내부 샘플러로 다시 측정한다. |
+jetson(client)이 jetson3의 OST0002를 60초 동안 회선 최대 속도로 읽거나 쓰고, jetson3 안의 샘플러가 CPU를 기록한다(2회, `experiments/motivation/m5_oss_cpu.sh`). LLM은 실행하지 않는다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m5-oss-cpu-dark.svg">
+  <img alt="원격 I/O를 처리하는 OSS 노드의 CPU: 유휴 0.8%, 원격 읽기 처리 13.0%, 원격 쓰기 처리 19.0%, softirq는 약 6%" src="docs/figures/m5-oss-cpu-light.svg" width="620">
+</picture>
+
+| 조건 (jetson3) | 처리량 | CPU (6코어 기준) | softirq | MemAvailable 변화 |
+|---|---|---|---|---|
+| 유휴 | – | 0.8% | 0.2% | – |
+| jetson이 OST0002를 읽음 | 114MB/s | 13.0% | 6.1% | 변화 없음 |
+| jetson이 OST0002에 씀 | 93MB/s | 19.0% | 6.3% | 변화 없음 |
+
+- P0에서는 SSH로 `/proc/stat`을 조회해 jetson1·jetson3 약 2%, jetson2 13–19%를 얻었고, jetson2 값을 SSH 영향으로 보았다. 재측정 결과는 13–19%가 맞다. P0 측정에서는 fio가 파일을 다시 만들면서 지정한 OST가 아닌 곳에 데이터가 놓여, I/O를 처리하지 않은 OSS의 CPU를 잰 것으로 보인다(3.2절).
 
 **시사점:**
-- 1GbE가 원격 부하 자체를 제한하므로, 다른 노드의 I/O가 이 노드의 연산을 방해하는 효과는 작다.
-- 그래서 간섭에 대한 주장은 자기 노드의 로컬 I/O(M2)와 메모리(M4)를 중심으로 한다. 서버 측 캐시를 켜는 경우는 5.4절 O2에서 따로 확인한다.
+- OSS가 다른 노드의 I/O를 처리하는 부담은 CPU 13–19%로 작지 않다. 그중 약 6%는 네트워크 수신·송신 처리(softirq)이다.
+- 그러나 같은 노드의 LLM(GPU 중심)은 이 부담에 거의 영향을 받지 않는다(M8, 1% 안팎). CPU를 쓰는 작업(수집, 토큰화, 압축기)에는 영향이 남는다.
+- 다른 노드의 I/O가 LLM에 주는 영향은 CPU보다 NIC 공유(M9)에서 크다.
 
 ### 3.7 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다
 
@@ -767,6 +777,11 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 | JSON 스키마 준수 | 3/3 |
 | 메모리 | 약 4.1GB |
 | 내용 | 조치 유형을 잘못 사용함 (예: `repartition` 대상에 컨텍스트 ID 지정) |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m6-planner-dark.svg">
+  <img alt="플래너 결정 시간: 새 프롬프트 21.4초(prefill 2.8초 + 생성 18.5초), 프롬프트 캐시 시 16.1초, 17.3초" src="docs/figures/m6-planner-light.svg" width="620">
+</picture>
 
 **시사점:** 결정 지연은 이벤트 단위 재계획에 쓸 수 있는 수준이다. 하지만 검증기와 조치별 입력 형식 제한이 필수이고, 플래너 모델 크기와 배치 노드를 다시 정해야 한다(메모리 4.1GB).
 
@@ -803,7 +818,7 @@ jetson1에서 llama-server(Qwen3-4B Q4_K_M, 모델은 로컬 디스크)를 실�
 | jetson이 OST0000에 씀 | 측정 못 함 (노드 멈춤) | – | – | 93MB/s (94) |
 
 **시사점:**
-- OSS가 원격 읽기를 회선 최대 속도로 처리해도 같은 노드의 prefill·decode는 1% 안팎만 느려진다. M5(서버 CPU 약 2%)와 일치한다. 원격 I/O는 연산이 아니라 NIC를 통해 LLM에 영향을 준다(M9).
+- OSS가 원격 읽기를 회선 최대 속도로 처리해도 같은 노드의 prefill·decode는 1% 안팎만 느려진다. OSS가 CPU의 13–19%를 쓰지만(M5) GPU 중심의 LLM 연산은 거의 영향을 받지 않는다. 원격 I/O는 연산보다 NIC를 통해 LLM에 영향을 준다(M9).
 - 원격 쓰기 조건에서 jetson1이 응답을 멈추고 재부팅되었다(17:46경). 첫 재부팅 직후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`)의 NULL 참조로 커널 panic이 한 번 더 발생했고, 두 번째 부팅에서 OST0000이 자동으로 다시 마운트되어 client가 복구되었다. 첫 멈춤의 원인 기록은 남지 않았다(ramoops에는 두 번째 panic만 남음). 두 번째 멈춤(M10 측정 중)은 감시 기록으로 메모리 소진이 원인임을 확인했다(3.11절, `docs/testbed.md` F7).
 - 같은 노드의 로컬 I/O와 LLM의 간섭(M8 로컬 조건)은 stage 노드에 client를 마운트한 뒤 측정한다.
 
@@ -834,7 +849,7 @@ jetson1(stage 1)에서 jetson2(stage 2)로 activation을 TCP로 보내고, 그�
 - decode 메시지도 송신 링크를 공유하면 왕복이 0.6ms에서 4.6ms로 늘어난다. 영향을 받는 hop마다 토큰당 약 4ms가 더해진다.
 - M5·M8에서 원격 I/O가 서버의 CPU와 연산에 주는 영향은 작았다. 그러나 NIC 공유를 통해 LLM pipeline에는 큰 영향을 준다. 원 IFLustre가 다룬 OSS 사이의 간섭이, 하이퍼컨버지드 구성에서는 OSS와 pipeline 사이의 간섭으로 넓어진다.
 
-### 3.11 관찰 M10 (예비): LLM 서버와 같은 노드의 Lustre I/O가 8GB 메모리를 소진해 노드가 멈췄다
+### 3.11 관찰 M10: LLM 런타임이 KV를 호스트 RAM에 쌓아 8GB를 거의 채우고, 같은 노드의 Lustre I/O가 남은 메모리를 마저 써서 노드가 멈췄다
 
 M10(메모리 압박 시 LLM 성능)을 측정하던 중 jetson1이 멈췄다. 같은 노드는 M8 원격 쓰기 조건에서도 한 번 멈췄다(`docs/testbed.md` F7). 두 번째에는 노드 내부 감시 샘플러(1초 간격, 매 줄 fsync)가 직전 상태를 남겼다.
 
@@ -848,15 +863,39 @@ M10(메모리 압박 시 LLM 성능)을 측정하던 중 jetson1이 멈췄다. �
 | 1 | M12: llama-server 시작 (Qwen3-4B Q4_K_M, 모델을 Lustre에서 mmap, ctx 4608) | 6,550 → 약 2,700MB |
 | 2 | M12 서버 종료 | 5,491MB (시작 전보다 약 1GB 적음) |
 | 3 | M10: llama-server 시작 (모델은 로컬 디스크, ctx 8192) | 5,479 → 2,216MB |
-| 4 | LLM 요청 5개 (2k prefill + 128 decode). 요청마다 KV 페이지가 약 300MB씩 확보됨 | 2,216 → 906MB |
+| 4 | LLM 요청 5개 (2k prefill + 128 decode). 요청마다 약 310MB 감소 | 2,216 → 906MB |
 | 5 | 같은 노드에서 Lustre direct 읽기 시작 (자기 client → 자기 OSS) | 906 → 41MB, zram 스왑 0 → 3.4GB |
 | 6 | 응답 없음, 약 3분 뒤 재부팅. client 마운트가 사라지고 OST0000은 자동으로 다시 마운트됨 | – |
 
+**원인 확인.** 4번의 요청당 감소는 llama.cpp 서버의 호스트 RAM prompt cache(`--cache-ram`, 기본 8,192MiB) 때문이다. 서버는 프롬프트가 바뀔 때마다 이전 요청의 KV를 호스트 RAM에 저장한다. 기본 상한이 장치 메모리 전체(7.6GB)보다 크므로, 요청이 이어지면 메모리를 계속 채운다. jetson2에서 프롬프트가 서로 다른 요청 4개(각 2,705토큰)로 확인했다(`experiments/motivation/cache_ram_check.sh`).
+
+| llama-server 설정 | 요청 1 → 2 → 3 → 4 후 MemAvailable |
+|---|---|
+| 기본값 (`--cache-ram 8192`) | 2,668 → 2,301 → 1,959 → 1,581MB (요청마다 약 370MB = 2,705토큰 × 144KiB) |
+| `--cache-ram 0` | 2,738 → 2,734 → 2,729 → 2,726MB |
+
+**재측정 1 (메모리 보호 켬, 새로 부팅한 jetson1, prompt cache는 기본값)**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10b-guard-dark.svg">
+  <img alt="메모리 보호를 켠 재측정: LLM 요청 5개 동안 MemAvailable이 2,260MB에서 1,017MB로 줄고, 같은 노드의 direct 읽기와 다음 요청이 겹치자 580MB로 떨어져 보호 장치가 llama-server를 종료함" src="docs/figures/m10b-guard-light.svg" width="620">
+</picture>
+
+| 그림 번호 | 내용 | MemAvailable |
+|---|---|---|
+| 1 | llama-server(ctx 8192) 로드 후 LLM 요청 5개. 요청마다 prompt cache로 약 310MB 감소 | 2,260 → 1,017MB |
+| 2 | 같은 노드에서 Lustre direct 읽기 시작 (2.5GB/s, CPU 62%) | 1,017 → 896MB |
+| 3 | 읽기 중 다음 LLM 요청 시작 | 896 → 580MB |
+| 4 | 보호 장치(700MB 기준)가 llama-server와 fio 종료 | 580 → 5,556MB |
+
+- 같은 순서가 재현되었다. 보호 장치가 없었다면 첫 번째 측정처럼 멈췄을 것이다.
+- 서버를 내린 뒤 같은 노드의 Lustre 읽기만 측정하면 direct 2,569MB/s, buffered(상한 512MB) 1,239MB/s, buffered(기본 상한) 1,040MB/s였다.
+
 **시사점:**
-- 8GB 노드에서 Q4 모델 서버 하나(ctx 8192)가 KV를 채우면 약 4.6GB를 쓴다. 남은 메모리를 같은 노드의 저장 계층이 쓰면 노드 전체가 멈춘다. client 캐시 상한(512MB)이 걸려 있었는데도 일어났다. 이 상한은 client page cache만 제한하며, OSS 쪽 처리, RPC 버퍼, Lustre에서 mmap한 파일의 페이지는 제한하지 않는다.
-- jetson2에서 따로 확인한 결과, Lustre에서 모델을 mmap한 서버가 끝난 뒤 약 1.3GB가 MemAvailable에서 빠졌고 `drop_caches` 후에야 돌아왔다. 로컬 디스크 모델에서는 생기지 않았다.
-- M4에서는 캐시가 GPU 할당을 늦추는 정도였지만, LLM이 상주한 상태에서는 노드 가용성 문제가 된다. 메모리 제약(4.9.3절)과 상주 집합 관리(4.8.2절)가 성능 최적화가 아니라 필수 조건인 근거이다.
-- 다음 측정은 메모리 보호(MemAvailable 700MB 미만이면 실험 프로세스 종료)를 켜고 진행한다. 서버 ctx와 저장 I/O 종류별로 남는 메모리와 LLM 성능을 잰다.
+- 8GB 통합 메모리에서는 LLM 런타임이 따로 두는 KV 계층(호스트 RAM prompt cache)과 저장 계층(Lustre client·OSS)이 같은 메모리를 나눠 쓴다. 둘 다 서로를 모르고 자기 상한만 지키므로, 합이 장치 메모리를 넘으면 노드 전체가 멈춘다. client 캐시 상한(512MB)은 client page cache만 제한하고, 런타임 캐시와 OSS 쪽 처리는 제한하지 않는다.
+- 이것은 KV를 어느 계층(GPU 메모리, 호스트 RAM, 로컬 OST, 원격 OST)에 둘지를 노드 메모리 예산 안에서 하나의 관리자가 정해야 하는 근거이다. CoStripe의 KV 저장소와 상주 집합 관리(4.8.2절), 메모리 제약(4.9.3절)이 이 역할을 맡는다.
+- 이후 모든 측정은 `--cache-ram 0`으로 런타임 캐시를 끄고, KV 재사용은 slot 저장·복원(저장 계층)으로만 한다.
+- jetson2에서는 Lustre에서 모델을 mmap한 서버가 끝난 뒤 약 1.3GB가 MemAvailable에서 빠졌고 `drop_caches` 후에야 돌아왔다. 로컬 디스크 모델에서는 생기지 않았다. 별도 현상으로 기록해 둔다.
 
 ### 3.12 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다
 
@@ -945,7 +984,7 @@ CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에
 | M2 로컬 15–22배, 로컬 I/O가 CPU 45% 사용 | 소비 노드 배치, 로컬 I/O 간섭을 비용 모델에 반영 | 4.8.1, 4.8.4, 4.9.3절 |
 | M3 로컬 KV 복원이 재계산보다 7–12배 빠름, 원격은 재계산 이하 | KV pack 로컬 배치, 재계산 대 읽기 판단, page cache 우회 | 4.8.2절 |
 | M4 캐시가 메모리를 잠식하고 GPU 할당을 늦춤 | 캐시 상한 필수, 메모리 항을 비용 모델에 | 4.1.4, 4.8.4절 |
-| M5 원격 I/O의 서버 측 부담은 작음 | 간섭 주장은 로컬 I/O와 메모리 중심 | 8.3절 |
+| M5 원격 I/O를 처리하는 OSS는 CPU 13–19% 사용, LLM 감속은 1% 안팎 | CPU 간섭은 CPU를 쓰는 작업(수집, 토큰화, 압축)에 한정해 모델링 | 4.9.3, 8.3절 |
 | M6 플래너는 형식만 신뢰 가능, 메모리 4.1GB | 검증기 필수, 모델 크기 재결정 | 4.8.5절 |
 | M8 원격 읽기를 처리하는 OSS 노드의 LLM 감속은 1% 안팎 | 연산 간섭(β)은 로컬 I/O 중심으로 모델링 | 4.8.4, 4.9.3절 |
 | M9 저장 I/O가 같은 NIC의 activation 전달을 2–4배 늦춤 | OST 선택 시 그 노드의 NIC 송신 부하와 pipeline 위치를 함께 본다 | 4.9.3절 (A_k, U_k), 4.9.7절 |
@@ -2273,7 +2312,7 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 로컬 OST 대 원격 OST | 로컬 쓰기 약 1.7GB/s, 읽기 약 2.48GB/s, 원격 약 115MB/s → 15–22배 차이. 로컬 I/O는 노드 CPU의 약 45% 사용 | go |
 | prefill 대 KV 복원 (llama.cpp, Qwen3-4B Q4) | 로컬 복원이 prefill보다 7–12배 빠름(8k: 2.2초 vs 15.2초). 원격 복원은 8k에서 prefill보다 느림(21.9초). 8k에서는 메모리 압박으로 로컬 복원도 비선형으로 느려짐 | go |
 | Lustre 캐시와 GPU 할당 | 실패 없음, 할당 시간 +25%, 최악 지연 2배, 캐시 상한으로 해소 | 보조 근거 |
-| 다른 노드 I/O에 의한 CPU 간섭 | OSS가 회선 속도로 처리해도 CPU 약 2% | 약함 → 주장의 중심에서 제외 |
+| 다른 노드 I/O에 의한 CPU 간섭 | OSS가 회선 속도로 처리하면 CPU 13–19% (재측정, P0의 약 2%는 측정 오류). 같은 노드 LLM 감속은 1% 안팎(M8) | LLM 연산 간섭으로는 약함. 다른 노드 I/O의 영향은 NIC 공유(M9)가 더 큼 |
 
 결론: 진행한다. 논문의 중심은 위치(로컬 대 원격 15–22배, KV 복원 대 재계산)와 메모리 용량(캐시 잠식, 메모리 압박에 따른 KV I/O 비선형 저하)에 둔다. CPU 간섭은 자기 노드의 로컬 I/O 기준으로 다룬다.
 

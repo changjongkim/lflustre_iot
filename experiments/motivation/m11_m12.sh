@@ -13,7 +13,7 @@ bench() { # node local_ost args...
   rx $n "mount -t lustre | grep -q /mnt/lustrefs" || { echo "client mount missing on $n" >&2; return 1; }
   rx $n "mkdir -p $W $SLOT && lfs setstripe -c 1 -i $lost $SLOT"
   rx $n "cat > $W/kv_restore_bench.py" < $HERE/kv_restore_bench.py
-  rx $n "LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 4608 -np 1 --port 8089 --slot-save-path $SLOT/ </dev/null > $W/m1112_server.log 2>&1 &"
+  rx $n "LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 4608 -np 1 --cache-ram 0 --port 8089 --slot-save-path $SLOT/ </dev/null > $W/m1112_server.log 2>&1 &"
   rx $n "for i in \$(seq 1 150); do curl -sf http://127.0.0.1:8089/health >/dev/null && break; sleep 2; done; echo $n ready"
   rx $n "read -r SUDO_PW; export SUDO_PW; python3 $W/kv_restore_bench.py $* " <<< "$SUDO_PW"
   rx $n "pkill -f 'llama-serve[r] -m $MODEL'; true"; rx $n "rm -rf $SLOT"

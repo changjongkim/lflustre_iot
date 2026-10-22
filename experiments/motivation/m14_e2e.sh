@@ -14,7 +14,8 @@ for n in j j1 j2 j3; do rx $n "mount -t lustre | grep -q /mnt/lustrefs" || { ech
 rx j "mkdir -p $W $SLOT && lfs setstripe -c 1 $SLOT"
 rx j "cat > $W/kv_router.py" < $HERE/kv_router.py
 for n in j1 j2 j3; do
-  rx $n "mkdir -p $W && LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 4608 -np 1 --host $(ip_of $n) --port 8089 \
+  rx $n "mkdir -p $W"   # mkdir && nohup ... & 로 묶으면 서브셸이 SSH 출력을 잡아 세션이 끝나지 않는다
+  rx $n "LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 4608 -np 1 --cache-ram 0 --host $(ip_of $n) --port 8089 \
          --slot-save-path $SLOT/ </dev/null > $W/m14_server.log 2>&1 &"
 done
 for n in j1 j2 j3; do

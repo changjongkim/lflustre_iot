@@ -58,7 +58,7 @@ done
 # 3. LLM 서버 기동
 # cd와 nohup을 &&로 묶어 &를 붙이면 서브셸이 SSH 출력을 잡고 있어 세션이 끝나지 않는다. 문장을 나눈다.
 rx j1 "cd $W; LD_LIBRARY_PATH=\$HOME/lflustre_iot_work/llama-bin nohup \$HOME/lflustre_iot_work/llama-bin/llama-server -m $W/models/$MODEL \
-       -ngl 99 -c 4096 -np 1 --port $PORT </dev/null > $W/m8_server.log 2>&1 &"
+       -ngl 99 -c 4096 -np 1 --cache-ram 0 --port $PORT </dev/null > $W/m8_server.log 2>&1 &"
 rx j1 "for i in \$(seq 1 120); do curl -sf http://127.0.0.1:$PORT/health >/dev/null && break; sleep 2; done; \
        echo server ready; awk '/MemAvailable/{print \"MemAvailable MiB\", int(\$2/1024)}' /proc/meminfo"
 rx j1 "python3 $W/llm_probe.py $PORT warmup 1 512 16 >/dev/null"

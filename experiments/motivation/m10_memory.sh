@@ -23,7 +23,7 @@ echo "cache cap before: $ORIG MB, default (RAM/2): $DEFAULT MB" | tee $OUT/m10_i
 rx j1 "mkdir -p $T && lfs setstripe -c 1 -i 0 $T/f3g && dd if=/dev/zero of=$T/f3g bs=4M count=768 oflag=direct status=none && [ \$(lfs getstripe -i $T/f3g) = 0 ]" \
   || { echo "layout check failed" >&2; exit 1; }
 
-rx j1 "cd $W; LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 8192 -np 1 --port $PORT </dev/null > $W/m10_server.log 2>&1 &"
+rx j1 "cd $W; LD_LIBRARY_PATH=$BIN nohup $BIN/llama-server -m $MODEL -ngl 99 -c 8192 -np 1 --cache-ram 0 --port $PORT </dev/null > $W/m10_server.log 2>&1 &"
 rx j1 "for i in \$(seq 1 120); do curl -sf http://127.0.0.1:$PORT/health >/dev/null && break; sleep 2; done; \
        awk '/MemAvailable/{print \"server ready, MemAvailable MiB\", int(\$2/1024)}' /proc/meminfo" | tee -a $OUT/m10_info.txt
 rx j1 "python3 $W/llm_probe.py $PORT warmup 1 512 16 >/dev/null"

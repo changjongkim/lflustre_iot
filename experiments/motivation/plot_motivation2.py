@@ -138,7 +138,50 @@ def plot_f7(mode):
     ax.set_xlabel("Minutes since batch start (jetson1)", color=t["ink2"]); ax.set_ylabel("MiB", color=t["ink2"])
     legend(ax, t, loc="center", bbox_to_anchor=(0.42, 0.62)); title(ax, t, "Memory on jetson1 before the second hang (1 s samples)"); save(f, "m10-jetson1-hang", mode)
 
+def plot_m6(mode):
+    t = THEMES[mode]
+    r = [l.split("\t") for l in (ROOT / "results/p0/jetson/c8_planner.txt").read_text().splitlines() if l[:1].isdigit() and "\t" in l]
+    pre = [float(x[2]) / 1000 for x in r]; gen = [int(x[4]) / float(x[5]) for x in r]; wall = [float(x[6]) for x in r]
+    labels = ["Decision 1 (new prompt)", "Decision 2 (prompt cached)", "Decision 3 (prompt cached)"]
+    f, ax = fig(t, h=0.55 * 3 + 1.9); frame(ax, t, horizontal=True)
+    y = [2, 1, 0]
+    ax.barh(y, pre, height=0.42, color=t["s"][0], edgecolor=t["surface"], linewidth=2, label="Prefill (1,653-token prompt)")
+    ax.barh(y, gen, left=pre, height=0.42, color=t["s"][2], edgecolor=t["surface"], linewidth=2, label="Generate JSON plan (~15 tok/s)")
+    for yi, w in zip(y, wall):
+        ax.text(w, yi, f"  {w:.1f} s total", va="center", color=t["ink"], fontsize=9.5)
+    ax.set_yticks(y); ax.set_yticklabels(labels); ax.set_xlim(0, 30); ax.set_xlabel("Seconds", color=t["ink2"])
+    legend(ax, t, loc="upper center", bbox_to_anchor=(0.45, -0.28), ncol=2, fontsize=8.5)
+    title(ax, t, "LLM planner decision time (Qwen3-4B Q4, 4.1 GB resident)"); save(f, "m6-planner", mode)
+
+def plot_m10b(mode):
+    t = THEMES[mode]; d = R / "m10_run2"
+    r = rows(d / "j1_samp_idle_1.tsv") + [x for x in rows(d / "j1_samp_direct_1.tsv")]
+    r = sorted({x["t"]: x for x in r}.values(), key=lambda x: float(x["t"]))
+    t0 = float(r[0]["t"]); r = [x for x in r if float(x["t"]) - t0 <= 100]; xs = [float(x["t"]) - t0 for x in r]
+    f, ax = fig(t, h=3.2)
+    ax.plot(xs, [int(x["mem_avail_MiB"]) for x in r], color=t["s"][0], linewidth=2, label="MemAvailable")
+    ax.axhline(700, color=t["s"][1], linewidth=1.2, linestyle=(0, (4, 3)))
+    ax.text(xs[-1], 760, "guard threshold 700 MiB", ha="right", va="bottom", color=t["ink2"], fontsize=8.5)
+    for i, xm in enumerate([0, 62, 72, 76], 1):   # README 3장 표의 번호
+        ax.axvline(xm, color=t["grid"], linewidth=1)
+        ax.text(xm, 7250, str(i), ha="center", va="bottom", color=t["ink"], fontsize=9, fontweight="semibold")
+    ax.set_xlim(-3, xs[-1] + 2); ax.set_ylim(0, 7800); legend(ax, t, loc="center left")
+    ax.set_xlabel("Seconds", color=t["ink2"]); ax.set_ylabel("MiB", color=t["ink2"])
+    title(ax, t, "jetson1 memory with the guard on (llama-server ctx 8192)"); save(f, "m10b-guard", mode)
+
+def plot_m5(mode):
+    t = THEMES[mode]; d = {}
+    for cond in ("idle", "read", "write"):
+        for f in sorted((R / "m5").glob(f"j3_samp_m5_{cond}_*.tsv")):
+            r = rows(f)[5:55]
+            d.setdefault(cond, []).append((st.mean(float(x["cpu_pct"]) for x in r), st.mean(float(x["softirq_pct"]) for x in r)))
+    cpu = [st.mean(v[0] for v in d[c]) for c in ("idle", "read", "write")]
+    sirq = [st.mean(v[1] for v in d[c]) for c in ("idle", "read", "write")]
+    hbars_note(t, "m5-oss-cpu", mode, ["Idle", "Serving remote reads (114 MB/s)", "Serving remote writes (93 MB/s)"], cpu,
+               [f"{c:.1f}% (softirq {q:.1f}%)" for c, q in zip(cpu, sirq)],
+               "OSS node CPU while serving one remote client (jetson3)", "% of 6 cores", 30)
+
 if __name__ == "__main__":
     for mode in ("light", "dark"):
-        plot_m9(mode); plot_m13(mode); plot_m7(mode); plot_m11(mode); plot_m12(mode); plot_f7(mode)
-    print(sorted(p.name for p in (ROOT / "docs/figures").glob("m*.svg") if p.name[:3] in ("m7-", "m9a", "m9b", "m10", "m11", "m12", "m13")))
+        plot_m9(mode); plot_m13(mode); plot_m7(mode); plot_m11(mode); plot_m12(mode); plot_f7(mode); plot_m6(mode); plot_m10b(mode); plot_m5(mode)
+    print(sorted(p.name for p in (ROOT / "docs/figures").glob("m*.svg") if p.name[:3] in ("m5-", "m6-", "m7-", "m9a", "m9b", "m10", "m11", "m12", "m13")))

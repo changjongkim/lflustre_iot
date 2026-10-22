@@ -1,0 +1,12 @@
+prep ctx0 node1 prefill_ms=7447 ost=2
+prep ctx1 node2 prefill_ms=7424 ost=0
+prep ctx2 node3 prefill_ms=7172 ost=0
+prep ctx3 node1 prefill_ms=7113 ost=2
+prep ctx4 node2 prefill_ms=7127 ost=2
+prep ctx5 node3 prefill_ms=7045 ost=0
+prep ctx6 node1 prefill_ms=7033 ost=2
+prep ctx7 node2 prefill_ms=7108 ost=1
+prep ctx8 node3 prefill_ms=7076 ost=1
+prep ctx9 node1 prefill_ms=7040 ost=1
+prep ctx10 node2 prefill_ms=7100 ost=2
+prep ctx11 node3 prefill_ms=7033 ost=2

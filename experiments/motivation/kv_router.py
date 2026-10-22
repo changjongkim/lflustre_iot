@@ -46,7 +46,10 @@ def prep(slot_dir):
 
 def place(slot_dir, policy):
     load, where = {0: 0, 1: 0, 2: 0}, {}
-    for c in range(N_CTX):
+    order = list(range(N_CTX))
+    if policy == "balanced":   # 컨텍스트 번호 순서로 돌리면 담당 노드 배정(c % 3)과 우연히 같아진다. 고정 seed로 섞는다
+        random.Random(11).shuffle(order)
+    for c in order:
         f = os.path.join(slot_dir, f"ctx{c}.bin"); size = os.path.getsize(f)
         if policy == "lustre_default": cmd = ["lfs", "migrate", "-c", "1", f]
         elif policy == "balanced": cmd = ["lfs", "migrate", "-c", "1", "-i", str(min(load, key=load.get)), f]

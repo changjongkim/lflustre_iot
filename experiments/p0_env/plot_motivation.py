@@ -62,6 +62,16 @@ def m1b():
         f = l.split("\t")
         d.setdefault((int(f[0]), f[1]), []).append(float(f[3]))
     return {k: st.mean(v) for k, v in d.items()}
+def m5_cpu():
+    """M5 재측정 (results/motivation/m5): jetson3 노드 내부 샘플러, 조건별 60초 중 안정 구간 평균."""
+    out = {}
+    for cond in ("idle", "read", "write"):
+        v = []
+        for f in sorted((ROOT / "results/motivation/m5").glob(f"j3_samp_m5_{cond}_*.tsv")):
+            r = [l.split("\t") for l in f.read_text().splitlines()[1:]][5:55]
+            v.append(st.mean(float(x[1]) for x in r))
+        out[cond] = st.mean(v)
+    return out
 def iperf():
     d = {}
     for l in (R / "iperf3.txt").read_text().splitlines():
@@ -137,10 +147,12 @@ def plot_all(mode):
     ax.set_ylabel("MB/s", color=t["ink2"]); legend(ax, t, loc="upper left")
     title(ax, t, "Same-node vs. remote OST access (2 GiB, 4 MiB I/O)"); save(f, "m2a-local-remote", mode)
     # M2-b: I/O가 쓰는 CPU
-    oss = st.mean([x[1] for k, v in c.items() if k[0] in ("ost0", "ost2") for x in v])
+    oss = m5_cpu()   # P0 C2의 OSS CPU(약 2%)는 fio 레이아웃 문제로 잘못 측정되어 M5 재측정 값을 쓴다
     hbars(t, "m2b-io-cpu", mode,
-          ["Local OST read", "Local OST write", "Remote OST read (client side)", "Remote OST write (client side)", "OSS serving remote I/O (server side)"],
-          [d[("local", "read", "1")][1], d[("local", "write", "1")][1], d[("remote", "read", "1")][1], d[("remote", "write", "1")][1], oss],
+          ["Local OST read", "Local OST write", "Remote OST read (client side)", "Remote OST write (client side)",
+           "OSS serving remote reads (server side)", "OSS serving remote writes (server side)"],
+          [d[("local", "read", "1")][1], d[("local", "write", "1")][1], d[("remote", "read", "1")][1], d[("remote", "write", "1")][1],
+           oss["read"], oss["write"]],
           "%", "CPU used while doing I/O (% of 6 cores)", fmt="{:.0f}")
     # M3: prefill vs KV 복원
     k = x2(); ns = list(k)
