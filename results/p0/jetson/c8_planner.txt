@@ -1,0 +1,35 @@
+server ready after 60s (model on Lustre OST 1, remote for this node)
+rep	prompt_tokens	prompt_ms	prompt_tok_s	gen_tokens	gen_tok_s	wall_s	valid_json	n_actions
+0	1653	2837	583	283	15.3	21.4	True	5
+1	1	73	14	251	15.6	16.1	True	5
+2	1	69	15	267	15.5	17.3	True	5
+sample output: {
+  "actions": [
+    {
+      "type": "repartition",
+      "target": "S2",
+      "value": "N2"
+    },
+    {
+      "type": "repartition",
+      "target": "S4",
+      "value": "N3"
+    },
+    {
+      "type": "repartition",
+      "target": "S6",
+      "value": "N2"
+    },
+    {
+      "type": "repartition",
+      "target": "S8",
+      "value": "N3"
+    },
+    {
+      "type": "schedule_replication",
+      "target": "S2",
+      "value": "OST1"
+    }
+  ],
+  "rationale": "The event indicates that stage 2
+MemAvailable before=5372MiB during=1281MiB delta=4091MiB server RSS=635MiB

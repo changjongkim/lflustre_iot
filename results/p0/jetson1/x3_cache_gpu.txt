@@ -1,0 +1,17 @@
+===== target 4 GiB
+[A] cache empty      | MemFree=6394 MemAvail=6494 Cached=294 MiB
+allocated 16 x 256MiB = 4.00 GiB, total 1461 ms, worst chunk 97 ms
+[B] cache full (cap 3810MB) | MemFree=2595 MemAvail=6302 Cached=3894 MiB
+allocated 16 x 256MiB = 4.00 GiB, total 1807 ms, worst chunk 192 ms
+    after: MemFree=3586 MemAvail=5440 Cached=2058 MiB
+[C] cache capped 512MB | MemFree=6007 MemAvail=6473 Cached=676 MiB
+allocated 16 x 256MiB = 4.00 GiB, total 1460 ms, worst chunk 95 ms
+===== target 5 GiB
+[A] cache empty      | MemFree=6411 MemAvail=6486 Cached=285 MiB
+allocated 20 x 256MiB = 5.00 GiB, total 1832 ms, worst chunk 99 ms
+[B] cache full (cap 3810MB) | MemFree=2596 MemAvail=6277 Cached=3885 MiB
+allocated 20 x 256MiB = 5.00 GiB, total 2298 ms, worst chunk 200 ms
+    after: MemFree=4762 MemAvail=5504 Cached=945 MiB
+[C] cache capped 512MB | MemFree=6052 MemAvail=6474 Cached=630 MiB
+allocated 20 x 256MiB = 5.00 GiB, total 1824 ms, worst chunk 99 ms
+restored max_cached_mb=3810

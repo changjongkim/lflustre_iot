@@ -1,0 +1,13 @@
+still-running
+model OST: 1, slot dir default OST: 0
+server ready after ~32s; mem: 1781MiB available
+n_tokens	rep	prefill_ms	save_ms	kv_file_MiB	restore_local_ms	restore_remote_ms	ttft_after_restore_ms	prompt_n_after_restore
+1024	0	1724	320	144	201	1372	110	1
+1024	1	1739	318	144	190	1364	114	1
+2048	0	3417	898	288	297	2680	118	1
+2048	1	3416	878	288	377	2676	116	1
+4096	0	7036	1329	576	581	5300	115	1
+4096	1	7027	1334	576	630	5302	122	1
+8192	0	15193	2159	1152	2126	21805	137	1
+8192	1	15197	2212	1152	2190	21909	135	1
+0.29.344.547 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 9216, kv_unified = 'false'

@@ -93,8 +93,9 @@
 | C1 Lustre 기능 | 통과 | OST 지정, 디렉터리 상속, PFL, FLR(create/extend/resync/verify), migrate(경로 유지), NRS TBF(활성화·규칙 추가·복원), jobstats(조회) | jobstats는 꺼져 있음 |
 | C2 저장 경로 | 통과 (원격 경로만) | 아래 표 | 같은 노드 OST 경로는 client 마운트가 없어 측정 불가. raw NVMe는 Lustre 외 파일 시스템이 없어 측정 불가 |
 | C4 캐시 설정 | 기록 완료 | 3절 표 | client 캐시 상한이 RAM의 1/2로 README 가정과 일치 |
-| C5 메모리 | 일부 완료 | 아래 표 | PyTorch 미설치로 런타임 오버헤드는 미측정 |
-| C8 플래너 | 진행 중 | llama.cpp 빌드, Qwen3-4B Q4_K_M | – |
+| C5 메모리 | 일부 완료 | 아래 표, 캐시–GPU 할당 실험은 `results/p0/summary.md` ③ | PyTorch 미설치로 런타임 오버헤드는 미측정 |
+| C8 플래너 | 통과 (형식), 내용 품질 부족 | llama.cpp(commit e3797b1, CUDA sm_87), Qwen3-4B Q4_K_M: 입력 1,653토큰 prefill 2.84초, 생성 15.4 tok/s, 결정 1회 16–21초, JSON 3/3 유효, 메모리 약 4.1GB | README 추정 3.0GB보다 메모리가 큼 |
+| 판단 실험 ①②③ | 완료 | `results/p0/summary.md` | 로컬 OST가 원격보다 15–22배 빠름, 로컬 KV 복원이 prefill보다 7–12배 빠름 |
 | C9 시간 동기화 | 미달 | systemd-timesyncd, NTP 기준 오프셋 12–30ms | 목표 1ms |
 | C3, C6, C7, C10, C11 | 이번 범위 아님 | – | – |
 

@@ -1,0 +1,18 @@
+== mount client on jetson1-desktop
+mounted
+192.168.0.50@tcp:/lustrefs on /mnt/lustrefs type lustre (rw,checksum,encrypt,flock,lazystatfs,lruresize,nolock,statfs_project,nouser_fid2path,nouser_xattr,verbose)
+local file OST: 0, remote file OST: 1
+local          ost=0 write direct=1   1727.7 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 43.3%  before[MemFree=6407MiB Cached=294MiB] after[MemFree=6367MiB Cached=322MiB]
+local          ost=0 read  direct=1   2479.8 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 45.1%  before[MemFree=6408MiB Cached=294MiB] after[MemFree=6365MiB Cached=322MiB]
+remote         ost=1 write direct=1    114.6 MB/s  nic_rx=   23MiB nic_tx= 2141MiB  cpu= 13.1%  before[MemFree=6400MiB Cached=294MiB] after[MemFree=6363MiB Cached=322MiB]
+remote         ost=1 read  direct=1    114.8 MB/s  nic_rx= 2141MiB nic_tx=   25MiB  cpu= 19.5%  before[MemFree=6399MiB Cached=294MiB] after[MemFree=6365MiB Cached=322MiB]
+local          ost=0 write direct=1   1713.9 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 41.6%  before[MemFree=6403MiB Cached=294MiB] after[MemFree=6368MiB Cached=322MiB]
+local          ost=0 read  direct=1   2485.5 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 45.2%  before[MemFree=6399MiB Cached=294MiB] after[MemFree=6359MiB Cached=322MiB]
+remote         ost=1 write direct=1    114.6 MB/s  nic_rx=   24MiB nic_tx= 2141MiB  cpu= 13.1%  before[MemFree=6397MiB Cached=294MiB] after[MemFree=6369MiB Cached=322MiB]
+remote         ost=1 read  direct=1    114.8 MB/s  nic_rx= 2141MiB nic_tx=   24MiB  cpu= 19.5%  before[MemFree=6402MiB Cached=294MiB] after[MemFree=6365MiB Cached=322MiB]
+local          ost=0 write direct=1   1655.7 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 41.3%  before[MemFree=6396MiB Cached=294MiB] after[MemFree=6362MiB Cached=322MiB]
+local          ost=0 read  direct=1   2479.8 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 44.6%  before[MemFree=6395MiB Cached=294MiB] after[MemFree=6367MiB Cached=322MiB]
+remote         ost=1 write direct=1    114.6 MB/s  nic_rx=   23MiB nic_tx= 2141MiB  cpu= 13.1%  before[MemFree=6398MiB Cached=294MiB] after[MemFree=6367MiB Cached=322MiB]
+remote         ost=1 read  direct=1    114.8 MB/s  nic_rx= 2141MiB nic_tx=   24MiB  cpu= 19.6%  before[MemFree=6398MiB Cached=294MiB] after[MemFree=6370MiB Cached=322MiB]
+local          ost=0 read  direct=0   1419.4 MB/s  nic_rx=    0MiB nic_tx=    0MiB  cpu= 46.2%  before[MemFree=6408MiB Cached=294MiB] after[MemFree=4197MiB Cached=2370MiB]
+remote         ost=1 read  direct=0    114.5 MB/s  nic_rx= 2141MiB nic_tx=   23MiB  cpu= 21.0%  before[MemFree=6398MiB Cached=294MiB] after[MemFree=4199MiB Cached=2370MiB]
