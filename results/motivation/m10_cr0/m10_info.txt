@@ -1,0 +1,3 @@
+cache cap before: 512 MB, default (RAM/2): 3810 MB
+server ready, MemAvailable MiB 2217
+cache cap restored: 512 MB

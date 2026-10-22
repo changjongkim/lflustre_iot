@@ -1,0 +1,7 @@
+cond	cap_MB	fio_MB_s
+direct_1	512	660.7
+buf_cap512_1	512	1404.9
+buf_default_1	3810	1237.0
+direct_2	512	2813.8
+buf_cap512_2	512	1398.5
+buf_default_2	3810	1227.4

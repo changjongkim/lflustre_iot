@@ -33,17 +33,18 @@
   - [3.3 관찰 M2: 같은 노드 OST 접근은 원격보다 15–22배 빠르지만, CPU의 약 45%를 쓴다](#33-관찰-m2-같은-노드-ost-접근은-원격보다-1522배-빠르지만-cpu의-약-45를-쓴다)
   - [3.4 관찰 M3: 로컬에 저장한 KV는 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다](#34-관찰-m3-로컬에-저장한-kv는-재계산보다-712배-빠르고-원격-kv는-재계산보다-느릴-수-있다)
   - [3.5 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다](#35-관찰-m4-lustre-client-캐시가-8gb-메모리를-잠식하고-gpu-할당을-늦춘다)
-  - [3.6 관찰 M5: 다른 노드의 I/O가 서버 노드에 주는 부담은 작다](#36-관찰-m5-다른-노드의-io가-서버-노드에-주는-부담은-작다)
+  - [3.6 관찰 M5: 다른 노드의 I/O를 처리하는 OSS는 CPU의 13–19%를 쓴다](#36-관찰-m5-다른-노드의-io를-처리하는-oss는-cpu의-1319를-쓴다)
   - [3.7 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다](#37-관찰-m6-엣지-llm-플래너는-형식은-지키지만-내용-검증이-필요하다)
   - [3.8 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 총 처리량이 그 OSS의 NIC 하나로 묶인다](#38-관찰-m7-여러-흐름이-oss-하나를-공유하면-총-처리량이-그-oss의-nic-하나로-묶인다)
-  - [3.9 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다](#39-관찰-m8-다른-노드의-읽기를-처리하는-oss-노드에서-llm-연산은-거의-느려지지-않는다)
+  - [3.9 관찰 M8: 같은 노드의 저장 I/O는 LLM을 3% 이내로만 늦추고, 반대로 LLM은 로컬 쓰기를 22% 늦춘다](#39-관찰-m8-같은-노드의-저장-io는-llm을-3-이내로만-늦추고-반대로-llm은-로컬-쓰기를-22-늦춘다)
   - [3.10 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다](#310-관찰-m9-stage-노드의-저장-io가-stage-사이-activation-전달을-24배-늦춘다)
-  - [3.11 관찰 M10 (예비): LLM 서버와 같은 노드의 Lustre I/O가 8GB 메모리를 소진해 노드가 멈췄다](#311-관찰-m10-예비-llm-서버와-같은-노드의-lustre-io가-8gb-메모리를-소진해-노드가-멈췄다)
+  - [3.11 관찰 M10: LLM 런타임이 KV를 호스트 RAM에 쌓아 8GB를 거의 채우고, 같은 노드의 Lustre I/O가 남은 메모리를 마저 써서 노드가 멈췄다](#311-관찰-m10-llm-런타임이-kv를-호스트-ram에-쌓아-8gb를-거의-채우고-같은-노드의-lustre-io가-남은-메모리를-마저-써서-노드가-멈췄다)
   - [3.12 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다](#312-관찰-m11-체크포인트-쓰기를-kv-복원과-겹치면-복원이-41-느려지고-시점을-미루면-2로-줄어든다)
   - [3.13 관찰 M12: 원격 KV는 첫 사용 후 소비 노드로 옮기면, 이동 비용을 포함해도 세 번째 사용부터 이득이다](#313-관찰-m12-원격-kv는-첫-사용-후-소비-노드로-옮기면-이동-비용을-포함해도-세-번째-사용부터-이득이다)
   - [3.14 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고, pack에 붙이면 30배 빠르다](#314-관찰-m13-iot-레코드를-파일-단위로-쓰면-mds-요청이-병목이고-pack에-붙이면-30배-빠르다)
-  - [3.15 IFLustre 이점의 계승과 남은 실측](#315-iflustre-이점의-계승과-남은-실측)
-  - [3.16 관찰에서 설계로](#316-관찰에서-설계로)
+  - [3.15 관찰 M14: KV를 소비 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배, 소비 위치를 보지 않는 부하 분산보다 20–27배 짧다](#315-관찰-m14-kv를-소비-노드에-두면-ttft가-lustre-기본-할당보다-819배-소비-위치를-보지-않는-부하-분산보다-2027배-짧다)
+  - [3.16 IFLustre 이점의 계승과 남은 실측](#316-iflustre-이점의-계승과-남은-실측)
+  - [3.17 관찰에서 설계로](#317-관찰에서-설계로)
 - [4. Design](#4-design)
   - [4.1 대상 환경](#41-대상-환경)
   - [4.2 대상 시나리오와 워크로드](#42-대상-시나리오와-워크로드)
@@ -85,14 +86,17 @@
 
 **두 가지 문제.**
 1. **IoT 요청에서는 기존 KV 재사용이 잘 동작하지 않는다.** IoT 요청은 최근 센서·로그 구간을 컨텍스트로 포함한다. 이 구간이 시간에 따라 밀리면(슬라이딩 윈도우) 앞부분 일치(prefix)를 기준으로 하는 KV 재사용이 깨지고, 요청마다 수천 토큰을 다시 계산해야 한다.
-2. **저장 I/O가 같은 장치의 LLM 연산을 방해한다.** 8GB 메모리와 1GbE 네트워크에서 저장 I/O는 같은 장치의 LLM 연산과 다음 자원을 놓고 경쟁한다. 파이프라인에서는 한 장치의 지연이 서비스 전체로 전파된다.
-   - 메모리 용량(파일 시스템 캐시)
-   - CPU
-   - 메모리 대역폭
-   - 네트워크
+2. **데이터 위치와 공유 자원이 성능을 정한다.** 스토리지 서버가 LLM 연산 노드를 겸하면 저장 I/O와 LLM이 같은 노드의 자원을 나눠 쓴다. 실측(3장)에서 저장 I/O가 LLM 연산 자체를 늦추는 효과는 3% 이내로 작았다. 대신 다음이 TTFT와 처리량을 몇 배씩 바꿨다. 파이프라인에서는 한 stage의 지연이 서비스 전체로 전파된다.
+   - 데이터·KV가 소비 stage와 같은 노드에 있는지 (로컬 대 원격 15–22배, 로컬 KV 복원 대 재계산 7–12배)
+   - 여러 I/O 흐름이 같은 OSS를 공유하는지 (공유 시 흐름 3개 합계 120MB/s, 분산 시 2–2.5배)
+   - 저장 I/O가 pipeline activation과 같은 NIC를 쓰는지 (activation 전달 2–4배)
+   - LLM 런타임의 KV 캐시와 저장 계층이 서로 모른 채 8GB 메모리를 나눠 쓰는지 (노드 정지 2회)
+   - 백그라운드 쓰기가 지연에 민감한 읽기와 겹치는지 (KV 복원 +41% 대 +2%)
+
+   본 연구에서 간섭은 이렇게 공유 자원(OSS, NIC, 노드 메모리)을 둘러싼 경쟁과 쓰기 시점의 충돌을 뜻한다. 원 IFLustre가 다룬 OSS 공유 간섭을 하이퍼컨버지드 구성으로 넓힌 정의이며, 제목의 Interference-Aware도 이 뜻이다.
 
 **본 연구가 하는 일.**
-1. Jetson Orin Nano 5대와 Lustre로 구성한 엣지 클러스터에서 LLM 라이프사이클(수집, 적응, 서빙)의 I/O 특성과 저장-연산 간섭을 분석한다.
+1. Jetson Orin Nano 5대와 Lustre로 구성한 엣지 클러스터에서 LLM 라이프사이클(수집, 적응, 서빙)의 I/O 특성과 공유 자원(OSS, NIC, 메모리) 간섭을 분석한다. 저장 I/O의 LLM 연산 감속은 작고, 데이터 위치와 공유 자원이 성능을 몇 배씩 바꾼다는 점을 보인다.
 2. 스트림 단위로 이어 쓰는 컨텍스트의 KV를 데이터 수집 시점에 미리 계산하고, 내용 주소(content address)로 식별되는 객체로 저장하는 **의미 기반 content-addressed KV 저장소**를 설계한다. 이 저장소는 세 가지를 분리한다.
 
    | 구분 | 무엇이 결정하는가 |
@@ -101,7 +105,7 @@
    | 객체의 위치 | 비용 모델 |
    | 묶음·미리 읽기·압축 정책 | IoT 의미 정보 (스트림, 시간, 이상 여부) |
 
-3. 파이프라인 분할과 데이터 배치를 Layer Group 단위로 함께 결정한다.
+3. 파이프라인 분할과 데이터 배치를 Layer Group 단위로 함께 결정한다. 배치는 소비 stage, OSS별 동시 흐름, NIC 방향별 점유, 노드 메모리 예산을 함께 본다.
 4. 적응 학습의 체크포인트·복제·KV 재생성 I/O의 위치·시점·속도를 서빙 SLO에 맞추어 제어한다.
 5. 이벤트가 발생하면 LLM 플래너와 비용 모델 검증기로 재계획한다.
 
@@ -109,7 +113,7 @@
 
 ### 0.2 영문 초록 초안
 
-> IoT applications increasingly rely on large language models (LLMs) to interpret sensor streams, acoustic signals, and logs close to where data is generated. Edge devices such as the NVIDIA Jetson Orin Nano offer only 8 GB of memory shared by the CPU and GPU, which cannot hold even a 4B-parameter model in FP16. Edge sites therefore run pipeline-parallel inference on small clusters and exchange model weights, key-value (KV) caches, and adaptation state through a shared distributed file system (DFS), whose storage servers are also the LLM compute nodes. Two problems arise. First, IoT requests carry sliding windows of recent sensor and log records, which defeat prefix-based KV reuse and force repeated long prefills on weak devices. Second, storage I/O competes with LLM computation for memory capacity, CPU cores, memory bandwidth, and a 1 GbE link, and pipeline parallelism amplifies the slowdown of a single device to the entire service. We present CoStripe. CoStripe maintains append-only per-stream contexts, builds their KV caches at ingestion time, and stores them as content-addressed objects whose names are derived from token-chain hashes and model versions, while IoT semantics (data stream, time, anomaly status) drive packing, placement, prefetching, and compaction. CoStripe further co-decides pipeline partitioning and layer-group-aligned file layouts, controls the placement, timing, and rate of checkpoint, replication, and KV-regeneration I/O generated by adaptation, and re-plans upon lifecycle events using an LLM-based planner with a cost-model verifier. On a five-node Jetson Orin Nano cluster running Lustre, CoStripe reduces p99 TTFT by X% and improves SLO attainment by Y% compared to the default Lustre configuration, request-time prefix caching, and our prior work.
+> IoT applications increasingly rely on large language models (LLMs) to interpret sensor streams, acoustic signals, and logs close to where data is generated. Edge devices such as the NVIDIA Jetson Orin Nano offer only 8 GB of memory shared by the CPU and GPU, which cannot hold even a 4B-parameter model in FP16. Edge sites therefore run pipeline-parallel inference on small clusters and exchange model weights, key-value (KV) caches, and adaptation state through a shared distributed file system (DFS), whose storage servers are also the LLM compute nodes. Two problems arise. First, IoT requests carry sliding windows of recent sensor and log records, which defeat prefix-based KV reuse and force repeated long prefills on weak devices. Second, our measurements show that storage I/O barely slows LLM computation itself (at most 3%), yet performance changes several-fold with where data and KV caches live relative to the consuming stage and with which shared resource each I/O stream uses: concurrent flows on one storage server share its single 1 GbE link, storage traffic on a stage node slows pipeline activation transfers by 2–4×, and an LLM runtime's own host-memory KV cache and the storage stack, each unaware of the other, can exhaust the 8 GB memory and stall the node. Pipeline parallelism spreads the delay of one stage to the entire service. We present CoStripe, which treats interference as contention for shared storage servers, network links, and node memory, generalizing the server-sharing interference addressed by our prior work. CoStripe maintains append-only per-stream contexts, builds their KV caches at ingestion time, and stores them as content-addressed objects whose names are derived from token-chain hashes and model versions, while IoT semantics (data stream, time, anomaly status) drive packing, placement, prefetching, and compaction. CoStripe further co-decides pipeline partitioning and layer-group-aligned file layouts with a cost model of per-server flow sharing, per-direction link load, and a node memory budget that covers both runtime and storage caches, controls the placement, timing, and rate of checkpoint, replication, and KV-regeneration I/O generated by adaptation, and re-plans upon lifecycle events using an LLM-based planner with a cost-model verifier. On a five-node Jetson Orin Nano cluster running Lustre, CoStripe reduces p99 TTFT by X% and improves SLO attainment by Y% compared to the default Lustre configuration, request-time prefix caching, and our prior work.
 
 ### 0.3 설계 변경 요약
 
@@ -122,7 +126,7 @@
 | 적응 학습 | 전체 layer LoRA | 상위 LG(기본 LG9–11)에만 LoRA | 하위 LG의 KV가 어댑터 버전과 무관하게 유효 |
 | KV 재생성 | 고려 없음 | 상위 LG 입력 activation을 저장해 두고 상위 LG만 다시 계산 | 어댑터 전환 시 재계산 비용 약 75% 감소 |
 | 노드 역할 | 5-OST, N0 = 제어 + 플래너 + 전체 가중치 mirror | 비파괴 구성 A': jetson1–3 = OSS + 서빙 stage, jetson(N0) = 제어·수집·대체 stage, jetson0(NM) = MDS + 플래너 | 기존 Lustre를 다시 만들지 않는다. 5-OST 구성은 장치 추가와 MDT 재구축이 필요해 제외 |
-| 간섭 분석 | 메모리 대역폭 | 메모리 용량, CPU, 메모리 대역폭, 1GbE | 8GB, 6코어, 1GbE |
+| 간섭 분석 | 메모리 대역폭 | 공유 자원(OSS, NIC, 노드 메모리)과 쓰기 시점. 저장 I/O의 LLM 연산 감속은 주장에서 제외 | 실측(3장): 연산 감속 3% 이내, OSS·NIC·메모리 공유와 배치는 2–10배 차이 또는 노드 정지 |
 
 ---
 
@@ -148,16 +152,17 @@
 
 **적응 학습과 KV 유효성.** 장비와 공정이 바뀌면 모델도 현장 데이터로 주기적으로 적응해야 한다. 8GB 장치 한 대로는 4B 모델을 학습할 수 없으므로, 서빙 파이프라인이 올린 base 가중치를 공유해 LoRA만 학습한다. 그런데 LoRA 어댑터가 바뀌면 그 어댑터가 적용된 layer와 그 이후 layer의 KV가 모두 달라진다. 따라서 적응 학습은 저장된 KV의 유효성 문제를 만든다.
 
-**하이퍼컨버지드 구성의 간섭.** 엣지 사이트에는 스토리지 전용 서버를 둘 여유가 없으므로 DFS의 스토리지 서버가 LLM 연산 노드를 겸한다. 이때 저장 I/O는 같은 장치의 LLM 연산에 네 가지 경로로 영향을 준다.
+**하이퍼컨버지드 구성에서 성능을 정하는 것.** 엣지 사이트에는 스토리지 전용 서버를 둘 여유가 없으므로 DFS의 스토리지 서버가 LLM 연산 노드를 겸한다. 이 구성을 실측한 결과(3장), 저장 I/O가 같은 노드의 LLM 연산을 늦추는 효과는 모든 조건(원격·로컬, 읽기·쓰기, direct·buffered)에서 3% 이내였다. GPU 중심의 추론은 저장 I/O가 쓰는 CPU(OSS 13–19%)와 메모리 대역폭에 거의 영향을 받지 않는다. 대신 아래 공유 자원과 데이터 위치가 성능을 몇 배씩 바꿨다.
 
-| 경로 | 내용 |
+| 공유 자원·결정 | 실측 (3장) |
 |---|---|
-| 메모리 용량 | Lustre client 캐시의 기본 상한은 RAM의 1/2이다. 다른 노드의 I/O를 처리하는 서버 측 캐시도 이 노드의 메모리를 쓴다. |
-| CPU | OSS 처리, 네트워크 처리, LLM 런타임이 6개 코어를 나눠 쓴다. |
-| 메모리 대역폭 | 저장 I/O의 데이터 복사가 decode의 메모리 대역폭을 나눠 쓴다. |
-| 네트워크 | activation 전달, 원격 KV 읽기, 복제가 하나의 1GbE를 나눠 쓴다. |
+| 데이터·KV 위치 | 같은 노드 OST는 원격보다 15–22배 빠르다. 로컬 KV 복원은 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다. KV 배치 정책에 따라 TTFT p50이 0.8초에서 5.0초로 바뀐다(예비 측정). |
+| OSS | 흐름 세 개가 OSS 하나를 공유하면 총 처리량이 그 OSS의 1GbE(120MB/s)로 묶이고, 서로 다른 OSS로 나누면 2–2.5배가 된다. |
+| NIC | stage 노드의 OSS가 다른 노드의 읽기를 처리하면, 그 노드가 다음 stage로 보내는 activation 전달이 4배 느려진다. |
+| 노드 메모리 | LLM 런타임의 호스트 RAM KV 캐시와 Lustre client·OSS 메모리가 서로 모른 채 8GB를 나눠 써서 노드가 두 번 멈췄다. |
+| 쓰기 시점 | 체크포인트 쓰기가 KV 복원과 겹치면 복원이 41% 느려지고, 미루면 2%로 줄어든다. LLM 실행 중에는 같은 노드의 저장 쓰기가 22% 느려진다. |
 
-파이프라인에서는 가장 느린 stage가 처리량을 결정하므로, 데이터를 어느 장치에 둘지가 곧 어느 장치의 연산을 늦출지를 정한다.
+본 연구에서 간섭은 이렇게 공유 자원(OSS, NIC, 노드 메모리)을 둘러싼 경쟁과 쓰기 시점의 충돌을 뜻한다. 원 IFLustre가 다룬 OSS 공유 간섭을 하이퍼컨버지드 구성으로 넓힌 정의이며, 제목의 Interference-Aware도 이 뜻이다. 파이프라인에서는 가장 느린 stage가 처리량과 TTFT를 정하므로, 데이터를 어느 노드에 두고 각 흐름을 어느 OSS·NIC에 싣고 언제 쓸지가 서비스 성능을 정한다.
 
 **기존 연구의 공백.**
 
@@ -167,20 +172,20 @@
 | 사전 계산 KV (TurboRAG, MemLLM), 모듈 재사용 (Prompt Cache, CacheBlend, EPIC) | 고정된 문서나 프롬프트 모듈을 대상으로 한다. |
 | 엣지 KV 오프로딩 (KVSwap, Dual-Blade) | 장치 한 대의 로컬 SSD만 다룬다. |
 | 엣지 분산 추론 (EdgeShard, LOIP) | 저장 I/O와 학습 I/O를 고려하지 않는다. |
-| DFS 저장 할당 (본 연구진의 IFLustre 포함) | 스토리지 서버 사이의 간섭만 다룬다. |
+| DFS 저장 할당 (본 연구진의 IFLustre 포함) | 스토리지 서버(OSS) 공유 간섭만 다룬다. 스토리지 서버가 연산 노드를 겸할 때의 NIC·메모리 공유와 데이터의 소비 위치를 다루지 않는다. |
 | content-addressed 저장 (Venti, LBFS, IPFS) | 일반 데이터를 대상으로 하며, LLM 상태의 버전 의존성(어댑터에 따른 KV 변화)을 다루지 않는다. |
 
 **본 연구의 접근 (CoStripe).**
-1. **실측 분석.** Jetson Orin Nano 5대와 Lustre로 구성한 클러스터에서 LLM 라이프사이클 I/O와 저장-연산 간섭을 측정한다.
+1. **실측 분석.** Jetson Orin Nano 5대와 Lustre로 구성한 클러스터에서 LLM 라이프사이클 I/O와 공유 자원(OSS, NIC, 메모리) 간섭을 측정한다. 저장 I/O의 LLM 연산 감속은 대조 측정으로 함께 보고한다.
 2. **의미 기반 content-addressed KV 저장소.** 스트림 단위로 컨텍스트를 이어 쓰고, 수집 시점에 KV를 미리 계산한다. 이 KV를 내용 주소로 식별되는 객체로 저장한다. 스트림·시간·이상 여부 같은 의미 정보로 객체를 묶고, 배치하고, 미리 읽고, 압축한다.
-3. **분할과 배치의 공동 결정.** 가중치, KV, 어댑터가 모두 layer 단위로 나뉜다는 점을 이용해, Layer Group(LG)을 파이프라인 분할과 데이터 배치의 공통 단위로 정하고 하나의 비용 모델로 함께 결정한다.
+3. **분할과 배치의 공동 결정.** 가중치, KV, 어댑터가 모두 layer 단위로 나뉜다는 점을 이용해, Layer Group(LG)을 파이프라인 분할과 데이터 배치의 공통 단위로 정하고 하나의 비용 모델로 함께 결정한다. 비용 모델은 소비 위치, OSS별 동시 흐름, NIC 방향별 점유(저장 I/O와 activation), 노드 메모리 예산(런타임 KV 캐시와 저장 계층 포함)을 다룬다.
 4. **적응 학습 I/O 제어.** LoRA를 상위 LG에만 적용해 하위 LG의 KV가 어댑터 버전과 무관하게 유효하도록 한다. 상위 LG 입력 activation을 저장해, 어댑터가 바뀌면 상위 LG만 다시 계산한다. 체크포인트·복제·KV 재생성 I/O의 위치·시점·속도는 서빙 SLO에 맞춘다.
 5. **이벤트 기반 재계획.** LLM 플래너가 변경안을 만들고, 비용 모델 검증기가 검사한 뒤 적용한다.
 
-CoStripe는 IFLustre의 할당 정책(interference-free, throughput-aware, runtime-aware, read-aware relocation)을 일반화한 것이며, IFLustre는 본 연구의 비용 모델에서 연산 항을 제외한 특수한 경우에 해당한다.
+CoStripe는 IFLustre의 할당 정책(interference-free, throughput-aware, runtime-aware, read-aware relocation)을 일반화한 것이다. 3장 실측에서 이 정책들의 전제가 엣지에서도 성립함을 확인했다(M7, M11, M12, M13). IFLustre는 본 연구의 비용 모델에서 연산, activation 전달, 메모리 제약, 소비 위치 항을 제외한 특수한 경우에 해당한다.
 
 **기여.**
-1. 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 DFS에서 LLM 라이프사이클 I/O의 특성, 저장-연산 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크), IoT 요청의 KV 재사용 특성을 실측으로 분석하고, 관찰 결과 7개를 제시한다.
+1. 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 DFS에서 LLM 라이프사이클 I/O의 특성, 공유 자원(OSS, NIC, 노드 메모리) 간섭, IoT 요청의 KV 재사용 특성을 실측으로 분석하고 관찰 결과 13개를 제시한다. 저장 I/O의 LLM 연산 감속은 3% 이내로 작고, 데이터 위치와 공유 자원이 성능을 몇 배씩 바꾸며, 메모리 예산을 넘기면 노드가 멈춘다는 점을 보인다.
 2. 이름(내용), 위치(비용 모델), 정책(IoT 의미)을 분리한 의미 기반 content-addressed KV 저장소를 제안한다. 여기에는 수집 시점 prefill, 의미 기반 묶음과 압축, 어댑터 범위를 반영한 주소, 경계 activation을 이용한 부분 재생성이 포함된다.
 3. Layer Group 단위로 파이프라인 분할과 데이터 배치를 함께 결정하는 비용 모델과 배치 기법을 제안한다. 여기에는 장애 대체 분할을 고려한 복제 위치 결정이 포함된다.
 4. IFLustre의 할당 정책을 라이프사이클 전체로 확장한 시스템 CoStripe와 이벤트 기반 LLM 플래너·검증기를 구현하고, Jetson Orin Nano 5대에서 평가한다.
@@ -256,15 +261,16 @@ Jetson Orin은 ARM CPU와 Ampere GPU를 하나의 SoC에 통합한 엣지 AI 모
 
 **본 연구에 대한 시사점**
 1. **메모리 용량 경쟁이 가장 직접적이다.** 7.4GiB 안에 다음이 모두 들어가야 한다.
-   - 운영체제, CUDA/PyTorch 런타임
+   - 운영체제, CUDA/PyTorch 런타임 (런타임이 따로 두는 호스트 RAM KV 캐시 포함)
    - Lustre 서버와 client, 캐시
    - 가중치, KV cache, 학습 상태
 
    Lustre client 캐시(`llite.*.max_cached_mb`)의 기본 상한은 RAM의 1/2이다.
-2. **CPU 여유가 작다.** 6개 코어를 OSS 스레드, LNet/TCP, 체크섬, LLM 런타임이 나눠 쓴다.
-3. **메모리 대역폭이 decode의 상한이다.** 68–102GB/s 대역폭을 로컬 NVMe I/O의 DMA와 복사가 일부 사용한다.
+2. **CPU 여유가 작다.** 6개 코어를 OSS 스레드, LNet/TCP, 체크섬, LLM 런타임이 나눠 쓴다. 다만 실측에서 GPU 중심 추론은 OSS가 CPU 13–19%를 써도 거의 느려지지 않았다(3.6절). CPU를 쓰는 작업(수집, 토큰화, 압축)은 영향을 받을 수 있다.
+3. **메모리 대역폭이 decode의 상한이다.** 68–102GB/s 대역폭을 로컬 NVMe I/O의 DMA와 복사가 일부 사용한다. 실측에서 같은 노드 저장 I/O에 따른 decode 감속은 3% 이내였다(3.9절).
 4. **원격 접근이 로컬보다 10배 이상 느리다.** 1GbE(약 117MB/s)는 NVMe 순차 읽기(GB/s 단위)보다 훨씬 느리다.
 5. **prefill이 느리다.** 연산 성능이 낮아 긴 컨텍스트 prefill이 수 초에서 수십 초 걸린다. 그래서 KV 재사용의 가치가 데이터센터보다 크다.
+6. **스토리지 서버와 stage가 NIC 하나를 나눠 쓴다.** OSS가 처리하는 원격 I/O와 stage 사이 activation이 같은 1GbE를 쓴다(3.10절).
 
 ### 2.3 IoT 애플리케이션에서의 LLM 활용
 
@@ -488,7 +494,7 @@ IFLustre는 Lustre에서 여러 애플리케이션이 OSS를 공유할 때 생�
 |---|---|---|
 | 노드 역할 | 스토리지와 연산 분리 | 같은 장치가 둘 다 수행 |
 | 노드 자원 | 서버급, 10GbE | 8GB 공유 메모리, 6코어, 1GbE |
-| 간섭 범위 | OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 |
+| 간섭 범위 | OSS 사이 | OSS 사이 + NIC(저장 I/O와 activation) + 노드 메모리(런타임 KV 캐시와 저장 계층). 저장 I/O의 LLM 연산 감속은 실측 3% 이내로 작다 |
 | striping 효과 | stripe count 증가로 대역폭 확대 | 1GbE에서는 원격 stripe가 가장 느린 stripe가 되어 불리 |
 | 데이터 | 애플리케이션별 파일 | layer 구조와 버전 의존성을 가진 LLM 상태(가중치, KV, 어댑터, activation) |
 | 데이터 식별 | 파일 경로 | 내용 (같은 내용 = 같은 객체) |
@@ -510,13 +516,13 @@ IFLustre는 Lustre에서 여러 애플리케이션이 OSS를 공유할 때 생�
 
 | 연구 | 발표 | 방법 | 본 연구와의 차이 |
 |---|---|---|---|
-| CALCioM | IPDPS 2014 | 앱 간 I/O 조정 | 연산 간섭 없음 |
-| GIFT | FAST 2020 | 쿠폰 기반 대역폭 관리 | 연산 간섭 없음 |
+| CALCioM | IPDPS 2014 | 앱 간 I/O 조정 | 스토리지와 연산 분리 가정, NIC·메모리 공유 미고려 |
+| GIFT | FAST 2020 | 쿠폰 기반 대역폭 관리 | 스토리지와 연산 분리 가정, NIC·메모리 공유 미고려 |
 | iez | IPDPS 2019 | OSS 용량 불균형 완화 | 소비 위치 미고려 |
-| LoomIO | TPDS 2021 | 객체 수준 요청 조정 | 연산 간섭 없음 |
+| LoomIO | TPDS 2021 | 객체 수준 요청 조정 | 스토리지와 연산 분리 가정, NIC·메모리 공유 미고려 |
 | Lustre NRS TBF | SC 2017 | 토큰 버킷 요청 스케줄러 | 본 연구의 실행 수단 |
 | DCA-IO | CCGrid 2019 | 로그 기반 설정 조정 | 로그 필요 |
-| A2FL | IPDPS 2024 | 실시간 패턴 기반 레이아웃 | 연산 간섭 없음 |
+| A2FL | IPDPS 2024 | 실시간 패턴 기반 레이아웃 | 스토리지와 연산 분리 가정, NIC·메모리 공유 미고려 |
 | Radio / Jaliminche et al. / CoFS | CLOUD 2022 / SoCC 2023 / TCAD 2024 | 장치 수준 간섭 | 장치 수준 |
 | IFLustre | MASCOTS 2022 | 예측 기반 OSS 할당 | 본 연구의 기반 |
 
@@ -526,6 +532,7 @@ Heracles(ISCA 2015), PARTIES(ASPLOS 2019), Caladan(OSDI 2020)은 한 서버의 �
 - 간섭원이 DFS 서버 측 I/O라서 데이터 배치로 간섭 위치를 바꿀 수 있다.
 - 피해자가 파이프라인 stage라서 한 노드의 지연이 전체로 전파된다.
 - 8GB 장치에서는 메모리 용량이 먼저 한계에 도달한다.
+- 본 실측에서 GPU 중심 추론은 CPU·메모리 대역폭 경쟁에 둔감했다(감속 3% 이내). 문제는 NIC 공유와 메모리 용량에서 나타났다.
 
 #### 2.8.3 LLM 모델 로딩과 오프로딩
 
@@ -539,7 +546,7 @@ ServerlessLLM(OSDI 2024), LLM in a flash(ACL 2024), PowerInfer(SOSP 2024), Power
 | SGLang | NeurIPS 2024 | radix tree prefix 재사용 | 동일 |
 | CachedAttention | USENIX ATC 2024 | 멀티턴 KV를 메모리·디스크에 저장 | 서버 내부, 요청 시점 생성 |
 | Mooncake | FAST 2025 | KV 중심 분리형 서빙, 블록 해시 기반 KV 풀 | 분리형 풀, RDMA |
-| LMCache | arXiv 2025 | 엔진 독립 KV 계층, chunk 해시(256토큰) | 요청 시점 생성, 연산 간섭 미고려 |
+| LMCache | arXiv 2025 | 엔진 독립 KV 계층, chunk 해시(256토큰) | 요청 시점 생성, 저장 계층과의 노드 메모리 예산 공유 미고려 |
 | CacheGen | SIGCOMM 2024 | KV 압축·스트리밍 | 전송 중심 |
 | IMPRESS | FAST 2025 | 중요도 기반 다계층 prefix KV | 단일 서버 |
 
@@ -627,7 +634,7 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 
 | ID | 공백 |
 |---|---|
-| G1 | 저장 서버와 LLM 연산 노드가 같은 소형 엣지 클러스터에서 저장 I/O가 LLM 연산에 주는 간섭(메모리 용량, CPU, 메모리 대역폭, 네트워크)이 측정·모델링되지 않았다. |
+| G1 | 저장 서버와 LLM 연산 노드가 같은 소형 엣지 클러스터에서 공유 자원(OSS, NIC, 노드 메모리)과 데이터 위치가 LLM 서빙에 주는 영향이 측정·모델링되지 않았다. 본 실측에서 이 영향은 저장 I/O의 LLM 연산 감속(3% 이내)보다 훨씬 컸다. |
 | G2 | 엣지 분산 추론의 분할은 저장 위치를 고려하지 않고, DFS 배치 연구는 연산 분할을 고려하지 않는다. |
 | G3 | 계속 늘어나는 IoT 스트림을 컨텍스트로 쓰는 요청에서 KV를 수집 시점에 만들어 근사 없이 재사용하는 저장 구조가 없다. 어댑터 버전 변화에 따른 저장 KV의 유효성 관리도 다뤄지지 않았다. |
 | G4 | 수집, 적응, 서빙의 I/O가 한 클러스터에서 공존할 때 체크포인트·복제·재생성 I/O의 위치·시점·속도 제어가 다뤄지지 않았다. |
@@ -700,7 +707,7 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 
 **시사점:**
 - 데이터 위치에 따라 접근 속도가 15–22배 달라진다. KV와 가중치를 소비 노드의 OST에 두는 배치가 핵심이다.
-- 같은 노드 접근은 NIC를 거치지 않는 대신 CPU를 6코어의 약 45% 쓴다. 저장 I/O와 LLM 연산의 간섭은 "자기 노드의 로컬 I/O"에서 크게 나타난다.
+- 같은 노드 접근은 NIC를 거치지 않는 대신 CPU를 6코어의 약 45% 쓴다. 다만 GPU 중심의 LLM 연산은 이 CPU 사용에 거의 영향을 받지 않았다(3.9절, 3% 이내). CPU를 쓰는 작업(수집, 토큰화, 압축)과는 경쟁할 수 있다.
 
 ### 3.4 관찰 M3: 로컬에 저장한 KV는 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다
 
@@ -807,20 +814,40 @@ client 3개(jetson, jetson1, jetson3)가 동시에 30초 동안 2GiB 파일을 d
 - 원 IFLustre의 "가장 느린 OSS가 성능을 정한다"는 관찰도 나타난다. 쓰기에서는 붐비는 OST 하나가 3-stripe 파일 전체를 25% 늦춘다. 읽기에서 영향이 6%로 작은 것은, 이 파일이 OST마다 필요로 하는 속도(약 39MB/s)가 공유 상태에서 받는 몫과 비슷하기 때문이다.
 - OSS를 가진 노드(jetson1, jetson3)가 client로 원격 OST를 읽으면 94MB/s로, client 전용 노드(115MB/s)보다 낮다. 원인은 확인하지 않았다.
 
-### 3.9 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다
+### 3.9 관찰 M8: 같은 노드의 저장 I/O는 LLM을 3% 이내로만 늦추고, 반대로 LLM은 로컬 쓰기를 22% 늦춘다
 
-jetson1에서 llama-server(Qwen3-4B Q4_K_M, 모델은 로컬 디스크)를 실행하고, 요청마다 2,048토큰 prefill과 128토큰 decode를 측정했다. 그동안 jetson(client)이 jetson1의 OST0000을 읽거나 쓴다. 조건마다 요청 5개를 보냈다(`experiments/motivation/m8_oss_llm.sh`).
+jetson1에서 llama-server(Qwen3-4B Q4_K_M, 모델은 로컬 디스크, ctx 4096, `--cache-ram 0`)를 실행하고, 요청마다 2,048토큰 prefill과 128토큰 decode를 측정했다. 그동안 jetson(client)이 jetson1의 OST0000을 읽거나 쓰거나(원격), jetson1 자신의 client로 OST0000을 읽거나 쓴다(로컬). 조건마다 요청 10개(2회 × 5개)를 보냈다(`experiments/motivation/m8_oss_llm.sh`).
 
-| 조건 (jetson1) | prefill | decode | 토큰 간격 p99 | 저장 I/O 처리량 (LLM 없을 때) |
-|---|---|---|---|---|
-| 저장 I/O 없음 | 608 tok/s | 16.08 tok/s | 67ms | – |
-| jetson이 OST0000을 읽음 (1GbE 최대) | 600 tok/s (−1.3%) | 15.98 tok/s (−0.6%) | 70ms | 117MB/s (115) |
-| jetson이 OST0000에 씀 | 측정 못 함 (노드 멈춤) | – | – | 93MB/s (94) |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m8-llm-under-io-dark.svg">
+  <img alt="저장 I/O 중 LLM 속도(저장 I/O 없을 때 대비): 원격 읽기·쓰기 100%, 로컬 direct 읽기 99%, 로컬 direct 쓰기 99–100%, 로컬 buffered 읽기 prefill 99% decode 97%, 로컬 buffered 쓰기 100%" src="docs/figures/m8-llm-under-io-light.svg" width="620">
+</picture>
+
+| 같은 노드의 저장 I/O (jetson1) | prefill | decode | 토큰 간격 p99 |
+|---|---|---|---|
+| 없음 | 608 tok/s | 16.09 tok/s | 67ms |
+| 원격 client가 OST0000을 읽음 (1GbE 최대) | 608 (0%) | 16.09 (0%) | 68ms |
+| 원격 client가 OST0000에 씀 | 606 (−0.3%) | 16.00 (−0.6%) | 68ms |
+| 로컬 direct 읽기 | 603 (−0.8%) | 15.86 (−1.4%) | 68ms |
+| 로컬 direct 쓰기 | 606 (−0.3%) | 15.98 (−0.7%) | 68ms |
+| 로컬 buffered 읽기 (캐시 상한 512MB) | 601 (−1.2%) | 15.63 (−2.9%) | 71ms |
+| 로컬 buffered 쓰기 | 607 (−0.2%) | 16.04 (−0.3%) | 68ms |
+
+반대 방향(LLM이 저장 I/O에 주는 영향):
+
+| 저장 I/O | LLM 없음 | LLM 실행 중 (1회, 2회) |
+|---|---|---|
+| 원격 읽기 / 쓰기 | 115 / 94MB/s | 116, 116 / 94, 94MB/s |
+| 로컬 direct 쓰기 | 714MB/s | 559, 561MB/s (−22%) |
+| 로컬 buffered 쓰기 | 296MB/s | 300, 165MB/s |
+| 로컬 buffered 읽기 | 1,163MB/s | 1,336, 1,339MB/s |
+
+- 로컬 direct 읽기는 회차에 따라 620–2,810MB/s로 흔들려(M10에서도 같음) 이 비교에서 뺐다.
 
 **시사점:**
-- OSS가 원격 읽기를 회선 최대 속도로 처리해도 같은 노드의 prefill·decode는 1% 안팎만 느려진다. OSS가 CPU의 13–19%를 쓰지만(M5) GPU 중심의 LLM 연산은 거의 영향을 받지 않는다. 원격 I/O는 연산보다 NIC를 통해 LLM에 영향을 준다(M9).
-- 원격 쓰기 조건에서 jetson1이 응답을 멈추고 재부팅되었다(17:46경). 첫 재부팅 직후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`)의 NULL 참조로 커널 panic이 한 번 더 발생했고, 두 번째 부팅에서 OST0000이 자동으로 다시 마운트되어 client가 복구되었다. 첫 멈춤의 원인 기록은 남지 않았다(ramoops에는 두 번째 panic만 남음). 두 번째 멈춤(M10 측정 중)은 감시 기록으로 메모리 소진이 원인임을 확인했다(3.11절, `docs/testbed.md` F7).
-- 같은 노드의 로컬 I/O와 LLM의 간섭(M8 로컬 조건)은 stage 노드에 client를 마운트한 뒤 측정한다.
+- 같은 노드의 저장 I/O는 원격이든 로컬이든 GPU 중심의 LLM 연산을 3% 이내로만 늦춘다. OSS가 CPU의 13–19%(M5), 로컬 I/O가 CPU의 약 45%(M2)를 쓰는데도 그렇다. "저장 I/O가 LLM 연산을 방해한다"는 이 장치·런타임에서 성립하지 않는다.
+- 반대로 LLM이 실행 중이면 같은 노드의 로컬 direct 쓰기가 22% 느려진다. 체크포인트, 복제, 수집 시점 prefill 쓰기의 완료 시간 추정에 넣어야 한다.
+- 첫 측정(prompt cache 켜짐)에서는 원격 쓰기 조건 중 jetson1이 멈췄다. 원인은 llama-server의 호스트 RAM prompt cache였다(3.11절). `--cache-ram 0`으로 다시 측정한 이번 결과에서는 멈춤도 메모리 보호 작동도 없었다.
 
 ### 3.10 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다
 
@@ -897,6 +924,23 @@ M10(메모리 압박 시 LLM 성능)을 측정하던 중 jetson1이 멈췄다. �
 - 이후 모든 측정은 `--cache-ram 0`으로 런타임 캐시를 끄고, KV 재사용은 slot 저장·복원(저장 계층)으로만 한다.
 - jetson2에서는 Lustre에서 모델을 mmap한 서버가 끝난 뒤 약 1.3GB가 MemAvailable에서 빠졌고 `drop_caches` 후에야 돌아왔다. 로컬 디스크 모델에서는 생기지 않았다. 별도 현상으로 기록해 둔다.
 
+**재측정 2 (`--cache-ram 0`, 메모리 보호 켬, ctx 8192)**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10c-reclaim-dark.svg">
+  <img alt="같은 노드 Lustre 읽기 중 메모리 회수: direct 읽기는 회수 없음, buffered 캐시 상한 512MB는 direct reclaim 67k, 기본 상한은 340k 페이지 스캔. decode 감속은 1.7–3.0%" src="docs/figures/m10c-reclaim-light.svg" width="620">
+</picture>
+
+| 같은 노드의 Lustre 읽기 (jetson1, 2회) | 최소 MemAvailable | direct reclaim 스캔 / kswapd 스캔 (85초당) | decode | prefill |
+|---|---|---|---|---|
+| 없음 | 2,076MB | 0 / 0 | 16.07 tok/s | 608 tok/s |
+| direct 읽기 (page cache 사용 안 함) | 2,056MB | 0 / 0 | −1.7% | −0.8% |
+| buffered 읽기, 캐시 상한 512MB | 1,965MB | 67k / 447k | −3.0% | −1.3% |
+| buffered 읽기, 기본 상한 3,810MB | 1,966MB | 340k / 2,170k | −2.3% | −1.0% |
+
+- 런타임 캐시를 끄면 ctx 8192 서버와 같은 노드의 Lustre 읽기가 함께 돌아도 MemAvailable이 약 2GB로 유지되고, 메모리 보호는 한 번도 작동하지 않았다.
+- 캐시 상한이 기본값이면 512MB일 때보다 페이지 회수가 약 5배 많다. 서버가 새 메모리를 잡을 때 direct reclaim으로 기다리게 되는 위험이 커진다. 이번 측정에서 LLM 속도 차이는 3% 이내였다.
+
 ### 3.12 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다
 
 jetson3에서 4k 토큰 KV(576MiB)를 3초 간격으로 10번 복원한다(매번 캐시 비움). 같은 로컬 OST에 체크포인트 파일(1GiB)을 쓴다(`experiments/motivation/kv_restore_bench.py`).
@@ -957,7 +1001,30 @@ jetson(client)에서 512B IoT 레코드 3,000개를 세 방식으로 쓴다. 레
 - 256KiB 파일도 47MB/s로 큰 파일 쓰기(93MB/s)의 절반이다.
 - 같은 레코드를 pack에 붙이면 30배 빠르고 MDS 요청은 약 1/1,500이다. KV chunk를 pack 단위로 저장하는 설계(4.8.2절)의 근거이다.
 
-### 3.15 IFLustre 이점의 계승과 남은 실측
+### 3.15 관찰 M14: KV를 소비 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배, 소비 위치를 보지 않는 부하 분산보다 20–27배 짧다
+
+stage 노드 3대(jetson1–3)가 각자 llama-server(Qwen3-4B Q4_K_M, ctx 4608, `--cache-ram 0`)를 실행한다. 데이터 스트림 컨텍스트 12개(각 4k 토큰, KV 576MiB)는 담당 노드가 정해져 있다. jetson의 요청 생성기가 Zipf 분포(인기 순서 고정 seed)로 초당 0.3개 요청을 4분 동안 보낸다. 요청이 오면 담당 노드가 KV slot 파일을 복원하고 질문 꼬리만 prefill한다. 정책은 KV 파일을 어느 OST에 두느냐만 다르다(`experiments/motivation/kv_router.py`, 메모리 보호 켬).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m14-ttft-cdf-dark.svg">
+  <img alt="KV 배치 정책별 TTFT 누적 분포: 소비 노드 배치는 모든 요청이 1.4초 안, Lustre 기본 할당은 중앙값 6.2초·최대 29초, 소비 위치를 보지 않는 부하 분산은 중앙값 16초·최대 42초" src="docs/figures/m14-ttft-cdf-light.svg" width="620">
+</picture>
+
+| KV 배치 정책 | 로컬 복원 요청 | 복원 시간 p50 | 대기 p50 | TTFT p50 | TTFT p90 | TTFT p99 | 최대 |
+|---|---|---|---|---|---|---|---|
+| Lustre 기본 할당기 (`lfs migrate -c 1`, OST 지정 없음) | 35 / 79 | 5.4초 | 0초 | 6.2초 | 19.1초 | 25.9초 | 29.4초 |
+| OSS 부하 기반 분산 (소비 위치를 보지 않음, IFLustre식) | 9 / 79 | 6.4초 | 7.7초 | 16.0초 | 27.2초 | 38.2초 | 41.6초 |
+| 소비 노드 OST | 79 / 79 | 0.62초 | 0초 | 0.79초 | 1.01초 | 1.36초 | 1.43초 |
+
+- 컨텍스트 배치: Lustre 기본 할당기는 12개 중 3개, 부하 분산은 2개만 담당 노드의 OST에 두었다. 부하 분산은 컨텍스트 순서를 고정 seed로 섞은 뒤 KV 바이트가 가장 적은 OST에 둔다(번호 순서대로 두면 담당 노드 배정과 우연히 같아져 처음 측정에서 고쳤다).
+- 같은 측정을 런타임 캐시를 켠 상태에서 먼저 했을 때도 Lustre 기본 할당기 p50 5.0초, 소비 노드 배치 0.8초로 같은 경향이었다(`results/motivation/m14`).
+
+**시사점:**
+- 원격 KV 복원은 1GbE 때문에 576MiB에 5–6초가 걸린다. 같은 노드의 다음 요청이 그동안 기다리므로, 원격 비율이 높은 정책일수록 대기가 쌓여 꼬리 지연이 커진다.
+- 원 IFLustre처럼 OSS 부하만 보고 소비 위치를 보지 않는 분산은, 엣지 LLM에서는 Lustre 기본 할당보다도 나쁠 수 있다. 이번 배치에서는 인기 컨텍스트가 원격에 놓여 p50이 16초가 되었다. 부하 분산의 결과는 어떤 컨텍스트가 어디에 놓이느냐에 크게 좌우되므로, 논문에서는 seed를 바꿔 반복한다.
+- 위치를 아는 배치(4.9.4절)가 IFLustre의 부하 기반 할당에 더해져야 하는 근거이다. CoStripe는 소비 노드 배치를 기본으로 하고, 공유 자원(OSS, NIC, 메모리)과 부하를 보고 예외를 정한다.
+
+### 3.16 IFLustre 이점의 계승과 남은 실측
 
 CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에서도 성립해야 한다. 아래 표는 IFLustre의 정책·관찰별로 엣지에서의 확인 결과와 남은 실측을 정리한 것이다. 상세 계획은 `docs/motivation_plan.md`에 있다.
 
@@ -970,29 +1037,50 @@ CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에
 | Runtime-aware allocation (대기 대 공유) | 체크포인트·복제 쓰기가 KV 복원과 겹치지 않게 시점을 미룬다 | M11 | 확인 (동시 +41%, 지연 +2%) |
 | Read-aware relocation (IoTJ) | 반복 읽히는 원격 KV를 소비 노드 OST로 옮긴다 | M12 | 확인 (5회 사용 시 27.3초 → 14.8초) |
 | (확장) 간섭 범위: NIC | 저장 I/O가 activation 전달을 늦춘다 | M9 | 확인 (2–4배) |
-| (확장) 간섭 범위: 같은 노드 연산 | 원격 읽기는 영향 작음. 로컬 I/O는 측정 필요 | M8 | 원격 확인, 로컬 예정 |
-| (확장) 간섭 범위: 메모리 | 캐시가 메모리를 잠식하고 GPU 할당을 늦춘다. LLM이 상주하면 노드가 멈출 수 있다 | M4, M10 | M4 확인, M10 노드 정지 2회 (메모리 보호를 켜고 재측정 예정) |
-| (종합) 배치 정책별 TTFT | Lustre 기본 할당 / OSS 부하 기반 분산 / 소비 노드 배치 | M14 | 예정 (프로토타입 `kv_router.py` 작성 완료) |
+| (대조) 같은 노드 연산 | 저장 I/O가 LLM prefill·decode를 늦추는 효과 | M5, M8 | 확인: 원격·로컬, direct·buffered 모두 3% 이내. 간섭의 경로가 아님 |
+| (확장) 간섭 범위: 메모리 | 캐시가 메모리를 잠식하고 GPU 할당을 늦춘다. 런타임 KV 캐시와 저장 계층 메모리의 합이 넘치면 노드가 멈춘다 | M4, M10 | M4 확인, M10 노드 정지 2회와 원인 확인. `--cache-ram 0`이면 MemAvailable 약 2GB 유지 (3.11절) |
+| (종합) 배치 정책별 TTFT | Lustre 기본 할당 / OSS 부하 기반 분산 / 소비 노드 배치 | M14 | 확인: TTFT p50 소비 노드 0.79초, Lustre 기본 6.2초, 부하 분산 16.0초 (3.15절) |
 
-남은 항목(M8 로컬 조건, M10 재측정, M14)은 메모리 보호를 켜고 측정한다.
+M8, M10, M14는 런타임 KV 캐시를 끄고(`--cache-ram 0`) 메모리 보호를 켠 상태로 다시 측정했다.
 
-### 3.16 관찰에서 설계로
+### 3.17 관찰에서 설계로
+
+**성능을 크게 바꾸는 것과 거의 바꾸지 않는 것**
+
+| 구분 | 요인 | 실측 | 관찰 |
+|---|---|---|---|
+| 크게 바꾸는 것 | 데이터·KV 위치 | 로컬 대 원격 OST 15–22배, 로컬 KV 복원 대 재계산 7–12배 | M2, M3 |
+| | KV 배치 정책 | TTFT p50 소비 노드 0.79초, Lustre 기본 6.2초, 부하 분산 16.0초 (p90 1.0 / 19.1 / 27.2초) | M14 |
+| | OSS 공유 | 흐름 3개 공유 시 합계 120MB/s, 분산 시 243–303MB/s, 최악 흐름 14MB/s | M7 |
+| | NIC 공유 | activation 전달 2–4배, decode 메시지 왕복 0.6 → 4.6ms | M9 |
+| | 노드 메모리 | 런타임 KV 캐시와 저장 계층 메모리의 합이 넘쳐 노드 정지 2회 | M4, M10 |
+| | 쓰기 시점 | KV 복원 +41%(동시 체크포인트) 대 +2%(시점 지연) | M11 |
+| | 재배치 | 같은 KV 5회 사용 27.3초 → 14.8초 | M12 |
+| | 수집 저장 단위 | pack이 레코드당 파일보다 30배 빠름, MDS 요청 1/1,500 | M13 |
+| 거의 바꾸지 않는 것 | 저장 I/O의 LLM 연산 감속 | prefill·decode 3% 이내 (원격·로컬, direct·buffered 모두) | M8 |
+| | 원격 I/O를 처리하는 OSS의 CPU | CPU 13–19%를 쓰지만 같은 노드 LLM 감속은 거의 없음 | M5, M8 |
+| | striping | stripe 1–3 차이 2% 이내 | M1 |
+
+따라서 본 연구는 저장 I/O가 LLM 연산을 늦추는 문제가 아니라 데이터 위치, 공유 자원(OSS, NIC, 메모리), 쓰기 시점을 다룬다. 반대 방향으로 LLM 실행 중 같은 노드의 저장 쓰기는 22% 느려지므로(M8, 로컬 direct 쓰기 714 → 559MB/s), 쓰기 시점과 완료 시간 추정에 반영한다.
+
+**관찰별 설계 반영**
 
 | 관찰 | 시사점 | 설계 반영 |
 |---|---|---|
 | M1 원격은 1GbE가 상한, striping 이득 없음 | 성능을 바꾸는 수단은 위치뿐 | stripe count 1 + 소비 노드 배치 (4.8.1, 4.9.4절) |
-| M2 로컬 15–22배, 로컬 I/O가 CPU 45% 사용 | 소비 노드 배치, 로컬 I/O 간섭을 비용 모델에 반영 | 4.8.1, 4.8.4, 4.9.3절 |
+| M2 로컬 15–22배, 로컬 I/O가 CPU 45% 사용 | 소비 노드 배치. 로컬 I/O의 CPU 사용은 CPU를 쓰는 작업과의 경쟁으로만 반영 | 4.8.1, 4.9.3절 |
 | M3 로컬 KV 복원이 재계산보다 7–12배 빠름, 원격은 재계산 이하 | KV pack 로컬 배치, 재계산 대 읽기 판단, page cache 우회 | 4.8.2절 |
-| M4 캐시가 메모리를 잠식하고 GPU 할당을 늦춤 | 캐시 상한 필수, 메모리 항을 비용 모델에 | 4.1.4, 4.8.4절 |
+| M4 캐시가 메모리를 잠식하고 GPU 할당을 늦춤 | 캐시 상한 필수, 메모리 항을 비용 모델에 | 4.1.4, 4.8.4, 4.9.3절 |
 | M5 원격 I/O를 처리하는 OSS는 CPU 13–19% 사용, LLM 감속은 1% 안팎 | CPU 간섭은 CPU를 쓰는 작업(수집, 토큰화, 압축)에 한정해 모델링 | 4.9.3, 8.3절 |
 | M6 플래너는 형식만 신뢰 가능, 메모리 4.1GB | 검증기 필수, 모델 크기 재결정 | 4.8.5절 |
-| M8 원격 읽기를 처리하는 OSS 노드의 LLM 감속은 1% 안팎 | 연산 간섭(β)은 로컬 I/O 중심으로 모델링 | 4.8.4, 4.9.3절 |
-| M9 저장 I/O가 같은 NIC의 activation 전달을 2–4배 늦춤 | OST 선택 시 그 노드의 NIC 송신 부하와 pipeline 위치를 함께 본다 | 4.9.3절 (A_k, U_k), 4.9.7절 |
-| M7 OSS 공유 시 합계가 NIC 하나로 묶임, 분산하면 2–2.5배 | 동시 흐름을 서로 다른 OSS로 분산 (interference-free 계승) | 4.9.7절 |
-| M10 LLM 상주 노드에서 저장 계층 메모리가 노드를 멈추게 함 | 메모리 제약은 필수 조건, 캐시 상한 외 저장 계층 메모리도 예산에 포함 | 4.1.4, 4.9.3절 |
+| M7 OSS 공유 시 합계가 그 OSS의 NIC 하나로 묶임, 분산하면 2–2.5배 | 동시 흐름을 서로 다른 OSS로 분산 (interference-free 계승). OSS별 동시 흐름 수를 비용 모델에 | 4.8.4, 4.9.3, 4.9.7절 |
+| M8 같은 노드 저장 I/O의 LLM 감속은 3% 이내. LLM 실행 중 로컬 쓰기는 −22% | 연산 감속(β)은 작은 항으로 두고 주장에서 제외. 역방향 쓰기 감속은 쓰기 시점 결정에 반영 | 4.8.4, 4.9.3절 |
+| M9 저장 I/O가 같은 NIC의 activation 전달을 2–4배 늦춤 (송신 공유가 더 큼) | 원격에서 읽히는 객체를 activation을 보내는 stage의 OST에 두지 않는다. NIC 방향별 점유를 비용 모델에 | 4.8.4, 4.9.3, 4.9.4, 4.9.7절 |
+| M10 런타임 호스트 RAM KV 캐시와 저장 계층 메모리가 서로 모른 채 8GB를 넘겨 노드 정지 | KV 계층(GPU, 호스트 RAM, 로컬 OST, 원격 OST)을 CoStripe가 하나의 메모리 예산으로 관리. 런타임 캐시는 끄거나 예산에 포함 | 4.1.4, 4.8.2, 4.8.4, 4.9.3절 |
 | M11 체크포인트와 KV 복원이 겹치면 +41%, 미루면 +2% | 백그라운드 쓰기의 시점 지연 (runtime-aware 계승) | 4.8.3, 4.9.7절 |
 | M12 원격 KV는 이동 후 세 번째 사용부터 이득 | 재사용 예측 기반 migrate (read-aware relocation 계승) | 4.8.2, 4.9.7절 |
 | M13 레코드당 파일은 MDS가 병목, pack은 30배 | KV chunk와 수집 레코드를 pack 단위로 저장 | 4.8.2절 |
+| M14 KV를 소비 노드에 두면 TTFT p50 0.79초, Lustre 기본 6.2초, 소비 위치를 보지 않는 부하 분산 16.0초 | 소비 위치를 아는 배치가 핵심 기능, 부하 기반 할당은 그 위에서 예외 결정 | 4.8.2, 4.9.4절 |
 
 ---
 
@@ -1217,6 +1305,8 @@ CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에
 | R | stage별 메모리 상주 컨텍스트 집합 |
 | S | 백그라운드 작업의 시점과 속도: 수집 시점 prefill 배치 간격, 압축 시점, KV 재생성 일정, 체크포인트 복제, 재배치, 적응 시간대와 연산 비율 |
 
+결정의 핵심은 세 가지이다. 각 객체를 소비 stage 기준으로 어디에 둘지, 각 I/O 흐름과 pipeline 전달이 어떤 OSS·NIC·메모리를 거치게 할지, 백그라운드 쓰기를 언제 할지이다. 저장 I/O가 LLM 연산 자체를 늦추는 효과는 실측상 작다(3% 이내, 3.9절).
+
 **목표**
 - 서빙 SLO(TTFT p99, TPOT p99)를 만족한다.
 - 서빙 처리량을 최대화한다.
@@ -1229,7 +1319,7 @@ maximize    Throughput(P, M, R, S) = 1 / max_k T_k
 
 subject to  TTFT_p99            <= SLO_TTFT
             TPOT_p99            <= SLO_TPOT
-            mem_k(P, R, S)      <= MemCap_k − margin        for all k
+            mem_k(P, R, S)      <= MemCap_k − margin        for all k  (런타임 KV 캐시, client 캐시, OSS·RPC 메모리 포함. 넘으면 노드 정지)
             used_j(M)           <= OstCap_j                 for all OSTs j
             freshness_lag(S)    <= LagMax                   (미처리 레코드 시간)
             ckpt_interval(S)    <= CkptMax
@@ -1248,29 +1338,33 @@ T_k와 mem_k의 정의는 4.9.3절에 있다.
 3. 엣지에는 별도 스토리지 계층이 없다 → 저장 서버와 연산 노드가 같다.
 4. 적응 학습이 모델 버전을 바꾼다 → 저장된 KV의 유효성 관리가 필요하다.
 
-Orin Nano 8GB에서는 두 조건이 문제를 키운다.
-- 메모리가 작아서 캐시가 연산 메모리를 직접 줄인다.
-- 1GbE라서 위치에 따른 접근 시간 차이가 10배 이상이다.
+Orin Nano 8GB에서는 세 조건이 문제를 키운다.
+- 메모리가 작아서 캐시와 런타임 KV 캐시가 연산 메모리를 직접 줄이고, 합이 넘치면 노드가 멈춘다(M10).
+- 1GbE라서 위치에 따른 접근 시간 차이가 10배 이상이고, OSS 하나를 공유하는 흐름들이 그 OSS의 1GbE를 나눠 쓴다(M7).
+- 스토리지 서버와 stage가 NIC 하나를 나눠 쓴다. OSS가 원격 읽기를 처리하면 그 stage의 activation 전달이 4배 느려진다(M9).
+
+반면 GPU 중심 추론은 같은 노드의 저장 I/O에 거의 영향을 받지 않는다(3% 이내, M8). 문제의 원인은 연산 경쟁이 아니라 위치와 공유 자원이다.
 
 ### 4.6 문제를 어렵게 만드는 요인
 
 | ID | 요인 | 설명 |
 |---|---|---|
-| D1 | 저장-연산 결합 | OST가 연산 노드에 있어서, I/O를 어디로 보내는지가 곧 노드별 연산 부하를 정한다. |
-| D2 | 메모리 용량 경쟁 | 가중치, 상주 KV, 런타임, 캐시, 학습 상태가 7.4GiB 안에서 경쟁한다. 캐시가 늘면 상주 KV가 줄고 저장 계층 I/O가 늘어난다. |
+| D1 | 저장-연산 결합 | OST가 연산 노드에 있어서, I/O를 어디로 보내는지가 곧 그 노드의 NIC·메모리 부하를 정한다. 연산(GPU) 감속은 작지만(3% 이내), NIC를 통한 activation 지연(2–4배)과 메모리 초과(노드 정지)는 크다. |
+| D2 | 메모리 용량 경쟁 | 가중치, 상주 KV, 런타임(호스트 RAM KV 캐시 포함), client 캐시, OSS·RPC 메모리, 학습 상태가 7.4GiB 안에서 경쟁한다. 캐시가 늘면 상주 KV가 줄고 저장 계층 I/O가 늘어난다. 각 구성 요소가 자기 상한만 지키므로 합이 장치 메모리를 넘을 수 있다(M10). |
 | D3 | 파이프라인 병목 | 가장 느린 stage가 처리량과 TTFT를 결정한다. |
-| D4 | 1GbE 네트워크 | 원격 접근이 10배 이상 느리고, activation·원격 KV·복제가 같은 NIC를 쓴다. |
+| D4 | 1GbE 네트워크 | 원격 접근이 10배 이상 느리고, activation·원격 KV·복제가 같은 NIC를 쓴다. OSS가 원격 읽기를 처리하면 그 노드의 송신 방향 activation이 4배 느려진다(M9). |
 | D5 | P, M, R의 상호 의존 | P가 바뀌면 객체의 소비 노드가 바뀌고, M과 R의 최적값도 바뀐다. |
 | D6 | I/O 클래스 간 충돌 | 요청 시점 KV 읽기(지연 민감)와 수집 시점 prefill, 체크포인트 복제, 재생성, 압축(버스트)이 같은 OST·NIC·메모리를 쓴다. |
 | D7 | 스트림 KV의 증가와 수명 | 스트림 로그 KV는 계속 늘어나고, 압축으로 epoch가 바뀌며, 어댑터 버전으로 상위 LG KV가 무효가 된다. |
 | D8 | 수집 시점 prefill의 읽기 증폭 | 새 chunk를 계산하려면 그 컨텍스트의 이전 KV 전체가 메모리에 있어야 한다. 상주하지 않은 컨텍스트를 prefill하려면 매번 컨텍스트 KV를 읽어야 한다. |
 | D9 | 시간에 따른 변화 | 적응 라운드, 장애, 부하 변화, 정책 변경이 일어나며, 새 객체에는 이력이 없다. |
+| D10 | OSS 공유 | 동시 흐름이 같은 OSS에 몰리면 총 처리량이 그 OSS의 1GbE로 묶이고, 흐름별 몫이 고르지 않다(M7: 최악 흐름 14MB/s). 여러 OST에 걸친 파일은 가장 붐비는 OST가 속도를 정한다. |
 
 ### 4.7 연구 질문
 
 | ID | 질문 | 관련 공백 | 실험 |
 |---|---|---|---|
-| RQ1 | 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 노드에서 저장 I/O는 같은 노드의 LLM 연산을 얼마나, 어떤 경로로 지연시키는가? | G1 | O1, O2, O3, O4 |
+| RQ1 | 8GB unified memory와 1GbE를 갖는 하이퍼컨버지드 엣지 클러스터에서 데이터 위치와 공유 자원(OSS, NIC, 노드 메모리)은 LLM 서빙 성능을 얼마나, 어떤 경로로 바꾸는가? 저장 I/O가 LLM 연산 자체를 늦추는 효과는 그에 비해 얼마인가? | G1 | O1, O2, O3, O4 |
 | RQ2 | 파이프라인 분할(P)과 데이터 배치(M, R)를 함께 결정하면 각각 결정할 때보다 서빙 성능과 복구 시간이 얼마나 개선되는가? | G2 | O4, O6, S2, S5 |
 | RQ3 | 스트림 단위 이어 쓰기 컨텍스트와 수집 시점 prefill, content-addressed KV 저장은 요청 시점 prefix 재사용 대비 TTFT를 얼마나 줄이며, 그 대가(저장 용량, 수집 시점 I/O, 압축·재생성 비용)는 얼마인가? | G3 | O7, S2, S7 |
 | RQ4 | 적응 학습과 KV 재생성의 I/O를 어떻게 제어해야 서빙 SLO를 유지하면서 라운드를 제시간에 끝낼 수 있는가? | G4 | O5, S3, S4, S7 |
@@ -1285,7 +1379,7 @@ Orin Nano 8GB에서는 두 조건이 문제를 키운다.
 | ⑧ | 분산 추론의 분할과 가중치 배치 | D1, D3, D4, D5 | RQ2 |
 | ② | 의미 기반 content-addressed KV 저장소 | D2, D4, D6, D7, D8 | RQ2, RQ3 |
 | ⑤ | 적응 학습과 KV 유효성 | D6, D7, D9 | RQ4 |
-| ③ | 저장-연산 간섭 측정과 완화 | D1, D2, D3, D4 | RQ1 |
+| ③ | 공유 자원 간섭(OSS·NIC·메모리) 측정과 완화 | D1, D2, D3, D4, D6, D10 | RQ1 |
 | ⑦ | 이벤트 기반 재계획 (LLM 플래너) | D5, D9 | RQ5 |
 
 #### 4.8.1 ⑧ 분산 추론의 분할과 가중치 배치
@@ -1365,7 +1459,7 @@ EdgeShard, PipeEdge, LOIP는 연산·메모리·네트워크로 분할한다. �
 4. **여러 요청이 같은 내용을 공유한다.** 같은 라인의 컨텍스트는 지시문·매뉴얼 KV를 공유한다. 같은 스트림을 묻는 여러 운영자는 같은 스트림 로그 KV를 공유한다. 내용 주소로 중복 없이 한 번만 저장하고 계산한다.
 5. **분할 변경, 장애, 복제를 단순하게 만든다.** 봉인된 객체는 바뀌지 않으므로 복제본이 낡지 않고, 이름이 위치와 무관하므로 재배치가 위치 변경만으로 끝난다.
 6. **어댑터 버전이 KV 유효성을 바꾼다.** 버전 의존성을 이름에 넣어야 잘못된 KV를 재사용하지 않는다.
-7. **KV I/O는 간섭의 원인이자 피해자이다.** 수집 시점 prefill의 KV 쓰기와 컨텍스트 읽기, 요청 시점 KV 읽기가 모두 저장 위치 노드의 메모리·CPU·NIC를 쓴다.
+7. **KV I/O는 간섭의 원인이자 피해자이다.** 수집 시점 prefill의 KV 쓰기와 컨텍스트 읽기, 요청 시점 KV 읽기가 모두 저장 위치 노드의 OSS, NIC, 메모리를 쓴다. 원격에서 읽히는 KV는 그 노드의 송신 링크를 써서 activation 전달과 경쟁한다(M9).
 
 **세부 문제**
 
@@ -1538,79 +1632,85 @@ FlexLLM 등 공동 실행 연구는 연산 자원 공유를, CheckFreq 등은 �
 
 runtime-aware allocation을 복제·재생성 I/O의 시점 제어와 속도 제한으로 확장한다.
 
-#### 4.8.4 ③ 저장-연산 간섭 측정과 완화
+#### 4.8.4 ③ 공유 자원 간섭(OSS·NIC·메모리) 측정과 완화
 
 **정의**
 
-한 노드의 OSS와 client가 처리하는 I/O가 같은 노드의 LLM 연산(서빙, 수집 시점 prefill, 학습, 재생성)을 지연시키는 현상이다. 경로는 네 가지로 나눈다.
+하이퍼컨버지드 노드에서 여러 I/O 흐름과 pipeline 전달이 같은 공유 자원을 나눠 쓰면서 생기는 지연과 실패이다. 원 IFLustre의 OSS 공유 간섭을 NIC와 노드 메모리로 넓힌 것이다. 경로별 크기는 3장에서 측정했다.
 
-| 경로 | 내용 |
-|---|---|
-| 메모리 용량 | 캐시·버퍼가 상주 KV와 런타임 메모리를 줄이고, 메모리 회수 지연·스왑·OOM을 일으킨다. |
-| CPU | OSS 스레드, LNet/TCP, softirq, 체크섬이 LLM 런타임과 경쟁한다. |
-| 메모리 대역폭 | 데이터 복사와 DMA가 decode 대역폭을 나눠 쓴다. |
-| 네트워크 | 원격 I/O가 activation 전달과 같은 NIC를 쓴다. |
+| 경로 | 내용 | 실측 크기 |
+|---|---|---|
+| OSS 공유 | 동시 흐름이 같은 OSS에 몰리면 총 처리량이 그 OSS의 1GbE로 묶인다. 여러 OST에 걸친 파일은 가장 붐비는 OST가 속도를 정한다. | 공유 시 합계 120MB/s, 분산 시 243–303MB/s, 최악 흐름 14MB/s. 3-stripe 쓰기 −25% (M7) |
+| NIC 공유 | stage 노드의 OSS가 처리하는 원격 I/O가 같은 NIC의 activation 전달과 경쟁한다. 원격 읽기는 송신 방향을, 원격 쓰기는 수신 방향을 쓴다. | activation 전달 2.0배(수신 공유), 4.1배(송신 공유). decode 메시지 왕복 0.6 → 4.6ms (M9) |
+| 노드 메모리 | 가중치, 상주 KV, 런타임의 호스트 RAM KV 캐시, Lustre client 캐시, OSS·RPC 메모리가 8GB를 나눠 쓴다. 각자 자기 상한만 지킨다. | client 캐시 기본 상한은 RAM의 1/2, GPU 할당 +25% (M4). 런타임 캐시가 요청마다 약 300–370MB 증가, 노드 정지 2회 (M10) |
+| 쓰기 시점 | 체크포인트·복제·수집 쓰기가 같은 OST의 지연 민감 읽기와 겹친다. LLM 실행 중에는 같은 노드의 쓰기도 느려진다. | KV 복원 +41%(동시) 대 +2%(지연) (M11). 로컬 direct 쓰기 714 → 559MB/s (M8) |
+| 연산 (대조) | 저장 I/O가 CPU·메모리 대역폭을 써서 같은 노드의 LLM 연산을 늦춘다. | prefill·decode 감속 3% 이내. OSS가 CPU 13–19%를 써도 LLM 감속은 거의 없음 (M5, M8) |
 
 **해결해야 하는 이유**
-1. **스토리지 전용 노드가 없다.** 모든 OST가 서빙 stage 노드(N1–N3)에 있고, MDS 노드(NM)도 플래너를 실행한다.
-2. **메모리 용량이 가장 먼저 한계에 도달한다.**
-   - client 캐시 기본 상한은 RAM의 1/2이다.
-   - 다른 노드의 KV 읽기를 처리하는 서버 측 캐시도 이 노드의 상주 KV 공간을 줄인다.
-   - Dual-Blade는 파일 기반 KV 오프로딩에서 page cache thrashing을 보고했다.
-3. **CPU와 메모리 대역폭이 작다.** 6코어, 68–102GB/s이다.
-4. **KV 저장소가 저장 I/O를 늘린다.** 수집 시점 prefill, 재생성, 압축, 복제가 추가 I/O를 만든다. 이 I/O가 어느 노드에서 처리되는지가 서빙에 영향을 준다.
-5. **파이프라인이 영향을 키운다(D3).**
-6. **다른 요소들의 공통 입력이다.** 모든 배치 결정의 기준(감속 β, 캐시 점유 cache)이 된다.
-7. **안정성을 확인해야 한다.** client와 OSS의 동시 운용은 8GB 노드에서 반드시 확인해야 한다.
+1. **스토리지 전용 노드가 없다.** 모든 OST가 서빙 stage 노드(N1–N3)에 있다. 어떤 객체를 어느 OST에 두는지가 곧 어느 stage의 NIC와 메모리를 쓰는지를 정한다.
+2. **차이가 몇 배 단위이다.** OSS 공유(2–2.5배), NIC 공유(2–4배), KV 배치 정책에 따른 TTFT(p50 8–20배, M14)는 연산 감속(3% 이내)보다 훨씬 크다.
+3. **메모리 초과는 성능 저하가 아니라 노드 정지이다.** 런타임 KV 캐시와 저장 계층이 서로 모른 채 8GB를 나눠 쓰면 노드가 멈춘다(M10). 노드가 멈추면 그 노드의 OST도 함께 사용할 수 없다.
+4. **KV 저장소가 I/O를 늘린다.** 수집 시점 prefill, 재생성, 압축, 복제가 추가 흐름을 만든다. 이 흐름이 어느 OSS·NIC를 거치는지가 서빙에 영향을 준다.
+5. **파이프라인이 영향을 키운다(D3).** 한 stage의 activation 전달 지연은 전체 TTFT에 더해진다.
+6. **다른 요소들의 공통 입력이다.** 모든 배치 결정의 기준(OSS별 동시 흐름 n_j, NIC 방향별 점유 U_k, 메모리 예산 mem_k)이 된다.
 
 **세부 문제**
 
 | ID | 세부 문제 |
 |---|---|
-| 3a | 크기: I/O 유형(읽기/쓰기, 크기, 서버/client 측, 로컬/원격)별, LLM 작업(prefill, decode, 학습)별 감속 |
-| 3b | 경로: 네 경로 중 주 원인 |
-| 3c | 완화: 노드 내 격리 수단 |
-| 3d | 안정성: 메모리 압박 시 동작 |
+| 3a | 크기: OSS 공유, NIC 공유(송신·수신), 메모리, 쓰기 시점별 영향. 연산 감속은 대조로 측정 |
+| 3b | 배치: 동시 흐름의 OSS 분산, NIC 방향별 부하를 고려한 OST 선택 |
+| 3c | 메모리 예산: KV 계층(GPU, 호스트 RAM, 로컬 OST, 원격 OST)과 저장 계층 메모리를 하나의 예산으로 관리 |
+| 3d | 시점: 백그라운드 쓰기의 지연과 속도 제한 |
+| 3e | 안정성: 메모리 압박 시 노드 보호 |
 
 **해결 방법**
-1. **측정 (3a, 3b).** 서버 측(원격 → 이 노드 OST, 1GbE 상한), 로컬 client, 원격 client 부하를 건 상태에서 stage 연산을 측정한다(5.4절 O2).
-2. **경로 분리 (3b).**
+1. **측정 (3a).** 5.4절 O2에서 측정한다.
+   - OSS 공유: 동시 client 수와 OST 배치를 바꾼다.
+   - NIC 공유: stage 사이 activation 전달 시간을 원격 읽기·쓰기 부하 아래에서 잰다.
+   - 메모리: 노드 내부 샘플러로 MemAvailable, 회수, 스왑을 기록한다.
+   - 연산 감속은 대조 측정으로 함께 기록한다.
+2. **OSS 분산 (3b).** 동시에 실행되는 흐름을 서로 다른 OSS로 나눈다(IFLustre interference-free 계승). 같은 OSS의 동시 흐름 수 n_j를 비용 모델에 넣는다.
+3. **NIC 인지 배치 (3b).**
+   - 원격에서 읽히는 객체(공유 prefix pack, mirror, 대체 stage용 가중치)는 activation을 보내는 stage의 OST에 두지 않는다. 원격 읽기는 그 노드의 송신 방향을 쓰기 때문이다(M9, 4.1배).
+   - mirror·복제·재배치는 지연에 민감한 hop의 NIC가 한가한 시점에 한다.
+   - stage 노드 OST에 대한 원격 읽기는 NRS TBF로 속도를 제한한다.
+4. **메모리 예산 관리 (3c).**
+   - CoStripe가 KV 계층(GPU 메모리, 호스트 RAM, 로컬 OST, 원격 OST)의 위치를 정한다. LLM 런타임의 호스트 RAM KV 캐시는 끄거나(`--cache-ram 0`) 예산 안의 크기로 제한한다.
+   - client 캐시 상한(`max_cached_mb`), OSS·RPC 여유분, 보호 기준(MemAvailable 하한)을 노드별 메모리 예산(4.1.4절)에 넣는다.
+   - KV 읽기는 direct I/O 또는 캐시 해제로 page cache를 거치지 않는다.
+5. **쓰기 시점 (3d).** 체크포인트·복제·수집 시점 prefill 쓰기는 같은 OST의 지연 민감 읽기와 겹치지 않게 미루고, 필요하면 TBF로 속도를 제한한다(IFLustre runtime-aware 계승). LLM 실행 중 같은 노드 쓰기가 22% 느려지므로(M8) 쓰기 완료 시간 추정에 반영한다.
+6. **안정성 (3e).** 메모리 보호(MemAvailable 하한 아래에서 백그라운드 작업부터 중지)를 둔다. KV 상주가 가득 찬 상태에서 학습과 원격 I/O를 함께 실행해 장시간 확인한다.
 
-   | 경로 | 분리 방법 |
-   |---|---|
-   | 메모리 용량 | 캐시 상한별 상주 KV, PSI memory, 회수 지연 |
-   | CPU | CPU 분리 전후, 체크섬 on/off |
-   | 메모리 대역폭 | EMC 사용률 상관 |
-   | 네트워크 | 원격 부하 중 activation 전달 시간 |
+**노드 내 격리 수단 (보조)**
 
-3. **모델링 (3a).** 감속 함수 β_k와 캐시 점유 함수 cache_k를 회귀로 구한다. 원 IFLustre의 예측 모델을 재사용한다.
-4. **노드 내 격리 수단 (3c).**
-
-   | 수단 | 방법 |
-   |---|---|
-   | 캐시 상한 | client `max_cached_mb`, OSS read/writethrough cache, ZFS ARC 상한 |
-   | 캐시 해제 | `posix_fadvise(DONTNEED)`, direct I/O 비교 |
-   | CPU 분리 | CPT로 OSS 스레드 고정, LLM은 cgroup cpuset |
-   | 체크섬 | on/off 측정 |
-   | 속도 제한 | NRS TBF |
-   | 스왑 | zram 설정 고정 |
-   | 전력 모드 | 모드별 β 측정 |
-
-5. **안정성 (3d).** KV 상주가 가득 찬 상태에서 학습과 원격 I/O를 함께 실행해 장시간 확인한다.
+| 수단 | 방법 |
+|---|---|
+| 캐시 상한 | client `max_cached_mb`, OSS read/writethrough cache |
+| 런타임 캐시 | llama.cpp `--cache-ram`, PyTorch 런타임의 KV 캐시 크기 |
+| 캐시 해제 | `posix_fadvise(DONTNEED)`, direct I/O |
+| 속도 제한 | NRS TBF |
+| CPU 분리 | CPT로 OSS 스레드 고정, cgroup cpuset (CPU를 쓰는 작업에 한정) |
+| 스왑 | zram 설정 고정 |
 
 **검증 방법**
-- 감속 곡선
-- 캐시 상한별 상주 KV와 PSI
-- 격리 수단별 효과
+- OSS별 동시 흐름 수와 처리량, activation 전달 시간, 노드 메모리 추이
+- 배치 정책별 TTFT (M14 확장)
 - 비용 모델 예측 오차 (목표 평균 15% 이내)
+- 연산 감속(대조)이 작다는 것의 재확인: PyTorch FP16 pipeline과 LoRA 학습 (9장)
 
 **관련 연구와의 차이**
 
-Heracles 등은 노드 내 자원 분할을 다룬다. 본 기법은 데이터 배치로 간섭 위치를 정하고, 8GB 장치의 메모리 용량 경로를 명시적으로 다룬다.
+Heracles 등은 노드 내 CPU·메모리 대역폭 분할을 다룬다. 본 실측에서 GPU 중심 추론은 이 경로에 둔감했다. 본 기법은 데이터 배치로 OSS·NIC 경쟁의 위치를 정하고, 8GB 장치의 메모리 용량을 런타임과 저장 계층에 걸쳐 하나의 예산으로 다룬다.
 
 **원 IFLustre와의 관계**
 
-"성능은 가장 느린 OSS가 결정한다"를 "파이프라인 처리량은 가장 느린 stage가 결정하고, stage 속도와 상주 KV는 같은 노드의 저장 I/O에 영향을 받는다"로 확장한다.
+원 IFLustre의 간섭은 OSS를 공유하는 흐름 사이의 경쟁이었다. 본 기법은 이를 세 가지로 넓힌다.
+- 같은 OSS를 공유하는 흐름
+- 같은 NIC를 쓰는 저장 I/O와 activation
+- 같은 노드 메모리를 쓰는 런타임과 저장 계층
+
+"성능은 가장 느린 OSS가 결정한다"는 관찰은 "TTFT는 가장 느린 stage가 결정하고, stage의 전달 시간과 상주 KV는 그 노드의 OSS가 처리하는 I/O와 메모리 사용에 영향을 받는다"로 확장된다.
 
 #### 4.8.5 ⑦ 이벤트 기반 재계획 (LLM 플래너)
 
@@ -1721,8 +1821,8 @@ Application Analyzer를 비용 모델(수치 예측)과 플래너·검증기(결
    - 그 KV로 서빙한다(⑧).
    - 학습(⑤)은 어댑터를 바꾸고 KV 재생성을 요구한다(②).
    - 서빙 로그는 다시 W1 데이터가 된다.
-2. **같은 메모리.** 가중치(⑧), 상주 KV(②), 학습 상태(⑤), 캐시(③)가 한 노드의 7.4GiB에서 경쟁한다.
-3. **같은 자원.** 가중치 I/O, 요청·수집 시점 KV I/O, 체크포인트·재생성·압축 I/O가 모두 같은 노드의 CPU, 메모리 대역폭, 1GbE를 쓴다(③).
+2. **같은 메모리.** 가중치(⑧), 상주 KV(②), 학습 상태(⑤), 런타임 KV 캐시와 저장 계층 메모리(③)가 한 노드의 7.4GiB에서 경쟁한다. 각자 자기 상한만 지키면 합이 장치 메모리를 넘어 노드가 멈춘다(3.11절).
+3. **같은 공유 자원.** 가중치 I/O, 요청·수집 시점 KV I/O, 체크포인트·재생성·압축 I/O, pipeline activation이 같은 OSS와 1GbE NIC를 쓴다(③). 실측에서 성능을 크게 바꾼 것은 이 공유(OSS 2–2.5배, NIC 2–4배)이며, 저장 I/O의 연산 감속은 3% 이내였다.
 4. **같은 단위.** 가중치, KV, 경계 activation, 어댑터, 체크포인트가 모두 LG 단위이다. 분할 P 하나가 모든 객체의 소비 노드를 정한다.
 5. **같은 이름 체계.** 모든 KV·activation 객체가 내용 주소로 식별된다. 재분할(⑧), 복제(⑤), 장애 대응이 이름 변경 없이 위치 변경으로만 처리된다.
 6. **같은 비용 모델.** 모든 결정이 하나의 식(4.9.3절)의 서로 다른 항을 바꾸고, ⑦이 이벤트마다 결정을 갱신한다.
@@ -1730,8 +1830,8 @@ Application Analyzer를 비용 모델(수치 예측)과 플래너·검증기(결
 #### 4.9.2 의존 관계
 
 ```
-                          ③ 저장-연산 간섭 측정
-                                  │ β (감속), cache (메모리 점유)
+                   ③ 공유 자원 간섭 측정 (OSS·NIC·메모리)
+                                  │ n_j (OSS별 동시 흐름), U_k (NIC 방향별 점유), mem_k 항, β (작음)
                                   ▼
  ┌───────────────────────── 비용 모델 T_k, mem_k ──────────────────────────┐
  │                                                                          │
@@ -1750,50 +1850,59 @@ Application Analyzer를 비용 모델(수치 예측)과 플래너·검증기(결
 
 | 요소 | 다른 요소에 제공 | 다른 요소에서 받음 |
 |---|---|---|
-| ③ | β, cache 함수 | 측정 대상 I/O 패턴 |
-| ⑧ | P, 대체 분할, 가중치 로드 부하 | β, 재분할 지시 |
-| ② | 수집 시점·요청 시점 KV I/O, 상주 메모리, TTFT, 최신성 | P, β·cache, 어댑터 범위(⑤), 상주·배치 간격·압축 지시(⑦) |
-| ⑤ | 학습 연산·메모리(N3), 체크포인트·재생성 I/O, 새 어댑터 이벤트 | P, β, 시점·속도 지시 |
+| ③ | OSS별 동시 흐름 한계, NIC 방향별 점유 함수, 메모리 예산 항(client 캐시, 런타임 캐시, OSS·RPC), β(작음) | 측정 대상 I/O 패턴 |
+| ⑧ | P, 대체 분할, 가중치 로드 부하 | NIC·메모리 항, 재분할 지시 |
+| ② | 수집 시점·요청 시점 KV I/O, 상주 메모리, TTFT, 최신성 | P, OSS·NIC·메모리 항, 어댑터 범위(⑤), 상주·배치 간격·압축 지시(⑦) |
+| ⑤ | 학습 연산·메모리(N3), 체크포인트·재생성 I/O, 새 어댑터 이벤트 | P, OSS·NIC 항, 쓰기 감속 γ, 시점·속도 지시 |
 | ⑦ | (P, M, R, S) 갱신 | 전 요소의 상태, 운영 정책, 스트림 의미 정보 |
 
 #### 4.9.3 비용 모델
 
 ```
-T_k   = C_k(P, S) · (1 + β_k(L_k)) + A_k(P, U_k) + F_k(M, R, U_k)
+T_k    = C_k(P, S) · (1 + β_k(L_k)) + A_k(P, U_k^tx, U_k^rx) + F_k(M, R, n, U)
 
 Throughput  = 1 / max_k T_k
-TTFT(e)     = max_k load_k(e) + tail_prefill(e) + 전달 지연
+TTFT(e)     = max_k load_k(e) + tail_prefill(e) + Σ_k A_k
               load_k(e)   : stage k에서 컨텍스트 e가 상주하지 않으면 KV 읽기 시간, 상주하면 0
               tail_prefill: 아직 수집 시점 prefill되지 않은 레코드 + 질문의 prefill 시간
-mem_k = W_k(P) + KV_k(R) + R_k + cache_k(L_k, limit_k) + Train_k(S)  ≤  MemCap_k − margin
-U_k   = (activation + 원격 KV + 원격 가중치 + 복제 + 재배치) 전송량 / NIC 대역폭
-L_k   = 서빙 KV 읽기 + 수집 시점 prefill의 컨텍스트 읽기·KV 쓰기 + 재생성 + 압축 + 체크포인트 + 수집 + 재배치
-C_k   = 서빙 연산 + 수집 시점 prefill 연산 + 재생성 연산 + 학습 연산 (S가 시점과 비율을 정함)
+mem_k  = W_k(P) + KV_k(R) + RT_k + cache_k(limit_k) + OSS_k(L_k) + Train_k(S)  ≤  MemCap_k − margin
+U_k^tx = (activation 송신 + 이 노드 OST에서 원격으로 읽히는 양 + 복제·재배치 송신) / NIC 대역폭
+U_k^rx = (activation 수신 + 이 노드 OST에 원격으로 쓰이는 양 + 원격 KV·가중치 읽기 + 복제 수신) / NIC 대역폭
+n_j    = OSS j를 동시에 쓰는 흐름 수.  흐름별 대역폭 ≈ min(흐름 요구량, OSS j의 NIC 대역폭 / n_j)
+L_k    = 서빙 KV 읽기 + 수집 시점 prefill의 컨텍스트 읽기·KV 쓰기 + 재생성 + 압축 + 체크포인트 + 수집 + 재배치
+C_k    = 서빙 연산 + 수집 시점 prefill 연산 + 재생성 연산 + 학습 연산 (S가 시점과 비율을 정함)
+D_w    = 백그라운드 쓰기 w의 완료 시간 = 쓰기량 / (대상 OST 쓰기 대역폭 · (1 − γ_k)),  γ_k: LLM 실행 중 쓰기 감속
 ```
 
 | 기호 | 의미 | 측정·계산 |
 |---|---|---|
 | C_k | stage k 연산 시간 | LG별 연산 프로파일(prefill, decode, 학습) 합산, 마지막 stage는 head 추가 |
-| β_k | 저장 I/O에 따른 감속 | O2 회귀 |
-| A_k | activation 전달 시간 | 전달량 / 유효 NIC 대역폭 |
-| F_k | 연산과 겹치지 않는 KV 읽기 대기 | 경로, OST 부하, NIC 점유 (O1) |
-| cache_k | 캐시 점유 | O2, O4 회귀 |
+| β_k | 저장 I/O에 따른 연산 감속 | 실측 3% 이내(M8). GPU 중심 추론에서는 작은 항으로 두고, CPU를 쓰는 작업(수집, 토큰화, 압축)에만 의미가 있다. O2 대조 측정 |
+| A_k | activation 전달 시간 | 전달량 / (NIC 대역폭 − 같은 방향 저장 트래픽). 송신 방향 공유가 더 크다(M9: 송신 4.1배, 수신 2.0배) |
+| F_k | 연산과 겹치지 않는 KV 읽기 대기 | 경로(로컬/원격), OSS 동시 흐름 n_j, NIC 점유 (M2, M7, O1) |
+| n_j | OSS j의 동시 흐름 수 | M7: 흐름 3개 공유 시 합계 120MB/s, 흐름별 몫이 고르지 않음 |
+| RT_k | 런타임 메모리 | CUDA·런타임 + 런타임 자체 KV 캐시(기본 끔, M10) |
+| cache_k | client 캐시 점유 | 상한 limit_k (M4) |
+| OSS_k | OSS·RPC 메모리 | 이 노드 OST가 처리하는 I/O에 따른 여유분 (O2, O4) |
 | KV_k(R) | 상주 KV 메모리 | 상주 집합 × 컨텍스트 크기 |
+| γ_k | LLM 실행 중 같은 노드 쓰기 감속 | M8: 로컬 direct 쓰기 −22% |
 
-- 원 IFLustre는 C=0, β=0, A=0, 메모리 제약 없음, R·S 중 runtime 대기만 있는 특수한 경우이다.
-- β가 작게 측정되면 메모리(cache → R → TTFT)와 네트워크 항이 주로 작동한다.
+- 원 IFLustre는 C=0, β=0, A=0, 메모리 제약 없음이고, n_j(OSS 공유)와 R·S 중 runtime 대기만 있는 특수한 경우이다.
+- 실측상 β는 작고, A_k(NIC), n_j(OSS 공유), mem_k(메모리), 쓰기 시점(S)이 결정의 대부분을 정한다.
+- 메모리 제약은 성능 항이 아니라 하드 제약이다. 넘으면 노드가 멈춘다(M10).
 
 #### 4.9.4 로컬 배치와 원격 배치의 선택
 
 | 배치 | 접근 시간 (stage KV 384MiB) | 네트워크 | 부하 증가 노드 |
 |---|---|---|---|
-| 소비 노드 OST | 약 0.15–0.3초 | 사용 안 함 | 소비 노드 (β, cache) |
-| 다른 stage 노드 OST | 약 3.5초 이상 | 양쪽 NIC | 다른 stage 노드 (NIC 속도로 상한) |
+| 소비 노드 OST | 약 0.15–0.3초 | 사용 안 함 | 소비 노드 (메모리, 로컬 I/O CPU) |
+| 다른 stage 노드 OST | 약 3.5초 이상 | 양쪽 NIC | 다른 stage 노드 (송신 NIC: 그 stage의 activation 송신과 경쟁) |
 | 이웃 stage 노드 OST (mirror) | 쓰기는 백그라운드, 장애 시 읽기 약 3.5초 이상 | 양쪽 NIC | 이웃 stage 노드 (쓰기 시점을 비용 모델이 고름) |
 
 - **지연 민감 객체(KV pack):** 대부분 로컬이 유리하다.
 - **내구성 객체(mirror, 체크포인트 복제본, 어댑터):** 연산 부하가 없는 OST가 없으므로 이웃 stage 노드 OST에 둔다. 쓰기 시점은 비용 모델이 받는 노드의 부하가 낮은 구간으로 고르고, TBF로 속도를 제한한다.
 - **병목 stage 노드의 새 pack:** 비용 모델 비교로 원격이 선택될 수 있다.
+- **원격에서 읽히는 객체(공유 prefix pack, mirror):** activation을 보내는 stage의 OST는 피한다. 원격 읽기는 그 노드의 송신 방향을 쓰고, 같은 방향의 activation 전달이 4배 느려진다(M9). 다음 stage로 보내는 activation이 없는 마지막 stage(N3)의 OST가 상대적으로 유리하다. 단, N3는 학습과 체크포인트 쓰기를 함께 하므로 쓰기 시점과 함께 판단한다.
 
 #### 4.9.5 시스템 아키텍처
 
@@ -1854,14 +1963,14 @@ NM (jetson0) ────────────────     N1–N3 (jetso
 | 원 IFLustre | CoStripe |
 |---|---|
 | Application Analyzer | Cost Model + LLM Planner + Verifier |
-| Interference-free allocation | 동시에 실행되는 I/O 흐름을 서로 다른 OSS에 나눈다. 각 OSS는 자기 1GbE NIC로 상한이 정해지므로, OSS 공유를 피한다는 원 IFLustre의 전제가 엣지에서 더 강하게 성립한다. 지연에 민감한 단계(서빙 KV 읽기, prefill)에 있는 노드의 OST는 피하고, 내구성 객체는 저부하 시점에 이웃 stage 노드에 쓴다. |
+| Interference-free allocation | 동시에 실행되는 I/O 흐름을 서로 다른 OSS에 나눈다. 각 OSS는 자기 1GbE NIC로 상한이 정해지므로, OSS 공유를 피한다는 원 IFLustre의 전제가 엣지에서 더 강하게 성립한다(M7: 공유 시 합계 120MB/s, 분산 시 2–2.5배). 원격에서 읽히는 객체는 activation을 보내는 stage의 OST에 두지 않고(M9), 내구성 객체는 저부하 시점에 이웃 stage 노드에 쓴다. |
 | Throughput-aware allocation | max_k T_k 증가와 메모리 감소가 최소인 OST 선택 |
 | Runtime-aware allocation | 수집 시점 prefill·재생성·압축·복제 I/O의 시점 지연과 TBF 속도 제한 |
 | Read-aware relocation | 의미 기반 상주·미리 읽기, LG 단위 migrate/mirror |
 | 소파일 관찰 | KV pack 설계 |
 | stripe count 결정 | 1GbE에서는 stripe count 1 + 소비 노드 배치 |
 | 파일 경로 기반 식별 | 내용 주소 기반 식별, 의미 정보 기반 정책 |
-| 간섭: OSS 사이 | OSS 사이 + 저장 I/O와 LLM 연산 사이 |
+| 간섭: OSS 사이 | OSS 사이 + NIC(저장 I/O와 activation) + 노드 메모리(런타임 KV 캐시와 저장 계층). 저장 I/O의 LLM 연산 감속은 실측상 작다(3% 이내) |
 
 #### 4.9.8 실행 예시
 
@@ -1891,7 +2000,7 @@ t6      E11  N3 복귀 → OST0002 mirror resync → 저부하 구간에 N0가 L
 | ⑧ | FP16 모델을 올릴 수 없다. 소비 노드 기준 배치가 성립하지 않는다. |
 | ② | 요청마다 기록 구간 수천 토큰을 다시 계산한다. 스트림 KV를 공유·보존할 수 없다. 공유 저장의 필요성이 약해진다. |
 | ⑤ | 온라인 적응이 없다. KV 유효성 문제, 재생성 I/O, 복제 I/O가 사라진다. |
-| ③ | 배치·상주·캐시 상한의 기준이 없다. 캐시가 상주 KV를 차지한다. |
+| ③ | OSS 공유, NIC 공유, 메모리 예산의 기준이 없다. 흐름이 한 OSS에 몰리고(M7), 원격 읽기가 activation 전달을 늦추고(M9), 런타임 캐시와 저장 계층이 메모리를 넘겨 노드가 멈출 수 있다(M10). 캐시가 상주 KV를 차지한다. |
 | ⑦ | 이벤트마다 수동 재설정이 필요하다. 스트림 의미 정책을 저장 결정으로 바꿀 수 없다. |
 
 ### 4.10 구현
@@ -2040,7 +2149,7 @@ P0 기록 결과는 `docs/testbed.md`에 있다(2026-10-22).
 |---|---|---|
 | GPU, EMC, CPU, 전력 | tegrastats / jtop | 100ms–1s |
 | 메모리, zram | `/proc/meminfo`, `/sys/block/zram*` | 1s |
-| 압박 | PSI (`/proc/pressure/*`) | 1s |
+| 압박 | `/proc/vmstat` 회수·스왑 카운터 (이 커널은 PSI가 없음), 노드 내부 샘플러(매 줄 fsync) | 1s |
 | 메모리 회수 | `/proc/vmstat` | 1s |
 | softirq | `/proc/softirqs`, `pidstat` | 1s |
 | NIC | `/proc/net/dev` | 1s |
@@ -2076,24 +2185,24 @@ P0 기록 결과는 `docs/testbed.md`에 있다(2026-10-22).
 | 가설 | 원격 약 117MB/s 제한. striping은 원격 stripe가 가장 느린 stripe가 되어 불리. 원격 읽기가 activation 전달을 늦춤 |
 | 반영 | 기본 배치 규칙, stripe count 1, F_k·A_k |
 
-#### O2. 저장-연산 간섭
+#### O2. 공유 자원 간섭 (OSS·NIC·메모리)
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | β, cache 함수 측정 |
-| 구성 | 단일 stage에서 decode, prefill, 학습 step을 실행하면서 서버 측·로컬 client·원격 client 부하 |
-| 변수 | 부하 속도, 읽기/쓰기, bs, 캐시 상한(기본값/1GB/512MB/256MB), 격리 수단, 전력 모드 |
-| 지표 | tokens/s, 토큰 지연, step 시간, GPU·EMC·CPU, Cached, PSI, pgmajfault, OOM |
-| 가설 | 기본 캐시 상한에서 상주 KV 공간이 크게 줄고 PSI가 오른다. 로컬 고속 I/O가 decode를 늦춘다. 서버 측 원격 부하는 감속은 작지만 캐시를 늘린다. |
-| 반영 | β_k, cache_k, 캐시 상한·격리 기본값 |
+| 목적 | OSS 공유, NIC 공유, 메모리 예산의 영향을 재고, 저장 I/O의 연산 감속(β)을 대조로 확인 |
+| 구성 | ① OSS 공유: 동시 client 1–3개를 같은 OSS / 서로 다른 OSS에 배치 (M7 확장, 흐름 크기·종류 혼합) ② NIC 공유: 3-stage pipeline에서 activation 전달과 decode hop 왕복을 원격 읽기·쓰기 부하 아래에서 측정 (M9 확장) ③ 메모리: 서버 ctx, 런타임 KV 캐시 설정, client 캐시 상한, 같은 노드 Lustre I/O 종류별 MemAvailable·회수·스왑과 LLM 성능 (M10) ④ 대조: 단일 stage의 decode·prefill·학습 step을 서버 측·로컬·원격 부하 아래에서 측정 (M8) |
+| 변수 | 동시 흐름 수, 부하 속도, 읽기/쓰기, client 캐시 상한(기본값/1GB/512MB/256MB), 런타임 캐시(끔/제한/기본값), TBF, 전력 모드 |
+| 지표 | 흐름별·총 처리량, activation 전달 시간, decode hop 왕복, TTFT, MemAvailable 최저값, 회수·스왑, 노드 정지 여부, tokens/s(대조) |
+| 예비 결과 | OSS 공유 시 합계 120MB/s, 분산 시 2–2.5배(M7). activation 전달 2–4배(M9). 런타임 캐시와 저장 계층 메모리로 노드 정지(M10). 연산 감속 3% 이내(M8) |
+| 반영 | n_j, A_k(U_k^tx, U_k^rx), mem_k의 항(cache_k, RT_k, OSS_k), 메모리 보호 기준, β_k는 작은 항으로 |
 
 #### O3. 파이프라인 증폭
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 한 stage 간섭의 전체 영향 |
-| 구성 | 같은 총 부하를 ① 병목 stage에 집중, ② 균등 분산, ③ 병목이 아닌 stage에 집중 |
-| 가설 | ① 최악, ③ 최선 |
+| 목적 | 한 stage의 NIC·메모리 경쟁이 pipeline 전체에 주는 영향 |
+| 구성 | 같은 총 원격 I/O 부하를 ① 병목 stage의 OST에 집중, ② 균등 분산, ③ activation 송신이 적은 stage(N3)의 OST에 집중 |
+| 가설 | ① 최악, ③ 최선 (송신 방향 공유가 더 큼, M9) |
 | 반영 | 목적 함수, 배치 규칙 |
 
 #### O4. 메모리 구성과 prefill 대 KV 로드
@@ -2172,8 +2281,8 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 서빙 | TTFT p50/p95/p99, TPOT, tokens/s, SLO 달성률 |
 | KV | 적중 계층 분포(상주/로컬/원격/재계산), 재사용 토큰 비율, 최신성 지연, 저장량, 중복 제거량 |
 | 라이프사이클 | 로드·복구 시간, 체크포인트·복제 완료, 학습 step/s, 라운드 완료, 재생성 시간, 압축 시간 |
-| 메모리 | 상주 KV, 캐시 점유, PSI, OOM |
-| 자원·비용 | J/token, 이동 바이트, NIC 사용률, MDS 메타데이터 연산 수 |
+| 메모리 | 상주 KV, client 캐시 점유, 런타임 캐시, MemAvailable 최저값, 회수·스왑, 노드 정지·보호 동작 |
+| 자원·비용 | J/token, 이동 바이트, NIC 방향별 사용률, OSS별 동시 흐름 수, MDS 메타데이터 연산 수 |
 | 플래너 | 결정 지연, 메모리·전력, 정책 준수율, 무효 계획 비율 |
 | 품질 (확인용) | LoRA 범위별·압축 방식별 판정 정확도 |
 
@@ -2189,7 +2298,10 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 의미 기반 미리 읽기 | 교대 시각 TTFT |
 | 규칙 압축 (한계 도달 시 재계산) | 압축 효과 |
 | 상위 LG LoRA + 경계 activation (전체 LoRA, 전체 재계산) | 재생성 비용 |
-| β 반영, cache 함수·캐시 상한 | 간섭 고려 효과 |
+| OSS 분산 (흐름을 한 OSS에 모음) | OSS 공유 회피 효과 (IFLustre interference-free) |
+| NIC 인지 배치 (activation을 보내는 stage의 OST도 원격 읽기 대상으로 허용) | NIC 공유 회피 효과 |
+| 메모리 예산 관리 (런타임 캐시·client 캐시 상한 기본값) | 메모리 관리 효과, 노드 정지 여부 |
+| β 반영 (β=0) | 연산 감속 항의 기여 (작을 것으로 예상) |
 | 소비 노드 배치, 이웃 stage mirror + N0 대체 | 배치·복구 효과 |
 | 3단계 체크포인트, TBF, 시점 제어 | 백그라운드 I/O 제어 효과 |
 | 플래너 (규칙으로 대체) | 플래너 효과 |
@@ -2210,6 +2322,8 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 체크포인트 | 35MB–0.4GB, 10–50 step |
 | LoRA 범위 | LG9–11 / LG6–11 / 전체 |
 | 캐시 상한 | 256MB–기본값 |
+| 런타임 KV 캐시 | 끔 / 512MB / 기본값(8GiB) |
+| OSS당 동시 흐름 수 | 1–4 |
 | 전력 모드 | 7W/15W/최대 |
 
 #### 5.5.6 규모 확장 시뮬레이션
@@ -2225,8 +2339,8 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | Fig.3 | Lustre 레이아웃 기능 | II |
 | Table 1 | 관련 연구 종합 비교 (2.9절) | II |
 | Table 2 | Orin Nano 메모리 예산 (실측) | II/III |
-| Fig.4–10 | O1–O7 결과 | III |
-| Table 3 | 관찰-설계 대응표 | III |
+| Fig.4–10 | O1–O7 결과 (OSS 공유, NIC 공유, 메모리 추이, 연산 감속 대조 포함) | III |
+| Table 3 | 관찰 요약(성능을 크게 바꾸는 것 / 거의 바꾸지 않는 것)과 관찰-설계 대응표 (3.17절) | III |
 | Fig.11 | 시스템 아키텍처 | IV |
 | Fig.12 | 이름·위치·정책 분리와 주소 구조 (체인 해시, 어댑터 범위) | IV |
 | Fig.13 | 경계 activation 기반 부분 재생성 | IV |
@@ -2242,9 +2356,9 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 
 | 논문 섹션 | 내용 | 이 문서 |
 |---|---|---|
-| I. Introduction | 배경, IoT 요청 구조, 두 문제, 공백, CoStripe, 기여 | 1 |
+| I. Introduction | 배경, IoT 요청 구조, 두 문제(KV 재사용, 데이터 위치와 공유 자원), 간섭의 정의, 공백, CoStripe, 기여 | 1 |
 | II. Background | IoT·엣지, Jetson, IoT LLM, LLM 구조·KV 재사용·I/O, CAS, Lustre, IFLustre, 관련 연구 | 2 |
-| III. Motivation (Empirical Analysis) | 테스트베드 실측 M1–M6, 이후 O1–O7 본 측정으로 확장, 관찰-설계 대응표 | 3, 5.4 |
+| III. Motivation (Empirical Analysis) | 테스트베드 실측 M1–M14(저장 I/O의 연산 감속은 작고 위치·공유 자원이 성능을 정함), 이후 O1–O7 본 측정으로 확장, 관찰 요약과 관찰-설계 대응표 | 3, 5.4 |
 | IV. Design | 문제 정의, 비용 모델, ⑧②⑤③⑦, 통합 구성, 구현 | 4 |
 | V. Evaluation | 비교 대상, S1–S7, ablation, 민감도, 시뮬레이션 | 5.5 |
 | VI. Discussion | 규모, MDS 단일 장애점, 다른 DFS, 큰 장비, 근사 재사용과의 결합, 보안 | 8 |
@@ -2280,8 +2394,9 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 파이프라인·KV Store 구현량 | 상위 LG 한정 학습으로 학습 범위 축소. KV Store는 pack·경로 계산 중심으로 단순화(전역 인덱스는 공유 prefix만) |
 | KV 직렬화·재생성 정확성 | C10, C11에서 토큰 일치와 오차를 검증한 뒤 진행 |
 | 레코드 토큰화 결정성 | 레코드별 독립 토큰화, 토크나이저 버전을 주소에 포함 |
-| client + OSS 동시 운용 불안정 | C3, 캐시 상한, 메모리 예약 |
-| β가 작게 측정됨 | 메모리·네트워크 항과 KV 재사용 구조(②) 중심으로 서술 |
+| client + OSS 동시 운용 불안정 | C3, 캐시 상한, 메모리 예약. jetson1 정지 2회의 주원인은 런타임 KV 캐시였다(M10) |
+| LLM 런타임이 자체 KV 캐시를 호스트 RAM에 둠 | llama.cpp 기본값(`--cache-ram` 8GiB)은 8GB 장치에서 노드를 멈추게 한다. 끄거나 CoStripe 메모리 예산에 포함하고, 메모리 보호 기준을 운영한다(M10) |
+| β가 작게 측정됨 (실제로 3% 이내로 측정됨) | 간섭을 공유 자원(OSS, NIC, 메모리)과 쓰기 시점으로 재정의하고, 위치·배치와 KV 재사용 구조(②) 중심으로 서술한다. β는 대조 측정으로 보고한다 |
 | 수집 시점 prefill의 유휴 연산 부족 | 배치 간격 확대, 우선 스트림만 사전 계산, 나머지는 요청 시점 계산 |
 | 상위 LG LoRA의 적응 품질 부족 | LG6–11로 범위 확대 후 재생성 비용과 함께 보고 |
 | 플래너가 Search-only보다 낮음 | 정책 해석·이벤트 대응 결과를 보고하고, 주 기여는 ②⑧로 둔다. |
@@ -2297,7 +2412,8 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | 반론 | 대응 |
 |---|---|
 | "DFS가 왜 필요한가? 로컬 디스크로 충분하지 않나" | 스트림 KV 로그는 메모리보다 크고, 여러 요청이 공유하며, 재분할·장애 후에도 유지되어야 한다. Local-replica(B1)와 비교해 재분할·장애·어댑터 전환에서의 차이를 보인다. |
-| "locality는 오래된 개념이다" | 로컬 배치가 병목 stage의 연산과 메모리를 잠식하는 trade-off를 실측(O2, O3)과 비용 모델로 보인다. 수집 시점 prefill과 재생성 같은 새로운 I/O 클래스의 배치를 다룬다. |
+| "locality는 오래된 개념이다" | 하이퍼컨버지드 노드에서는 로컬 배치가 그 노드의 NIC와 메모리를 쓴다. 원격에서 읽히는 객체를 어느 stage의 OST에 두느냐가 그 stage의 activation 전달을 4배 바꾸고(M9), 메모리 예산을 넘기면 노드가 멈춘다(M10). 이 trade-off를 실측(O2, O3)과 비용 모델로 보인다. 수집 시점 prefill과 재생성 같은 새로운 I/O 클래스의 배치를 다룬다. |
+| "저장 I/O가 LLM을 거의 늦추지 않는데 간섭 인지가 왜 필요한가" | 연산 감속이 3% 이내로 작다는 것을 먼저 실측으로 보인다(M8). 간섭은 공유 자원에서 생긴다. OSS를 공유하는 흐름 3개는 합계 120MB/s로 묶이고 분산하면 2–2.5배이다(M7). stage 노드의 OSS가 원격 읽기를 처리하면 그 stage의 activation 전달이 4배 느려진다(M9). 런타임 KV 캐시와 저장 계층이 메모리를 나눠 쓰면 노드가 멈춘다(M10). KV를 소비 노드에 두면 TTFT p50이 0.79초이고, Lustre 기본 할당은 6.2초, 소비 위치를 보지 않는 부하 분산은 16.0초이다(M14). 이것은 원 IFLustre가 다룬 OSS 공유 간섭을 NIC와 메모리로 넓힌 것이다. |
 | "KV 사전 계산은 TurboRAG, MemLLM에 있다" | 고정 문서가 아닌 계속 늘어나는 스트림, 근사 없는 이어 쓰기 재사용, 압축 epoch, 어댑터 범위 기반 주소와 부분 재생성, 공유 엣지 DFS 배치가 차이이다. |
 | "content addressing은 vLLM, LMCache도 쓴다" | 그들은 요청 시점 생성과 메모리·분리형 풀을 다룬다. 본 연구는 이름·위치·정책 분리, 버전 범위 주소, 의미 기반 묶음·압축·상주를 저장 계층에서 다룬다. |
 | "5대는 작다" | 엣지 사이트 규모가 원래 작다. 시뮬레이션으로 확장한다. |
@@ -2313,12 +2429,14 @@ III장 끝에는 관찰-설계 대응표를 둔다.
 | prefill 대 KV 복원 (llama.cpp, Qwen3-4B Q4) | 로컬 복원이 prefill보다 7–12배 빠름(8k: 2.2초 vs 15.2초). 원격 복원은 8k에서 prefill보다 느림(21.9초). 8k에서는 메모리 압박으로 로컬 복원도 비선형으로 느려짐 | go |
 | Lustre 캐시와 GPU 할당 | 실패 없음, 할당 시간 +25%, 최악 지연 2배, 캐시 상한으로 해소 | 보조 근거 |
 | 다른 노드 I/O에 의한 CPU 간섭 | OSS가 회선 속도로 처리하면 CPU 13–19% (재측정, P0의 약 2%는 측정 오류). 같은 노드 LLM 감속은 1% 안팎(M8) | LLM 연산 간섭으로는 약함. 다른 노드 I/O의 영향은 NIC 공유(M9)가 더 큼 |
+| 저장 I/O의 LLM 연산 감속 (M8, 런타임 캐시 끔) | 원격·로컬, direct·buffered 모두 3% 이내 | 주장에서 제외, 대조 측정으로 보고 |
+| 공유 자원과 배치 (M7, M9, M10, M14) | OSS 공유 2–2.5배, activation 전달 2–4배, 메모리 초과 시 노드 정지, 배치 정책별 TTFT p50 8–20배 | go (주장의 중심) |
 
-결론: 진행한다. 논문의 중심은 위치(로컬 대 원격 15–22배, KV 복원 대 재계산)와 메모리 용량(캐시 잠식, 메모리 압박에 따른 KV I/O 비선형 저하)에 둔다. CPU 간섭은 자기 노드의 로컬 I/O 기준으로 다룬다.
+결론: 진행한다. 논문의 중심은 데이터·KV 위치(로컬 대 원격 15–22배, KV 복원 대 재계산 7–12배, 배치 정책별 TTFT 6–10배 예비)와 공유 자원(OSS 공유 2–2.5배, NIC 공유 2–4배, 메모리 예산 초과 시 노드 정지), 쓰기 시점(+41% 대 +2%)에 둔다. 저장 I/O의 LLM 연산 감속은 3% 이내로 작아 주장에서 제외하고 대조 측정으로만 보고한다.
 
 P0와 O1–O7 결과로 투고 대상을 판단한다.
 - **조건:** 다음 둘 중 하나가 크게 나타나는지 본다.
-  - 다른 노드 I/O에 의한 메모리 잠식이나 로컬 I/O에 의한 감속(O2, O3)
+  - 공유 자원(OSS·NIC·메모리)과 배치 정책이 TTFT를 바꾸는 크기(O2, O3, M14)
   - 슬라이딩 윈도우 대비 수집 시점 prefill의 TTFT 개선(O7)
 - **크게 나타나면:** IoTJ 외에 상위 시스템 학회 버전을 검토한다.
 - **작게 나타나면:** IoTJ에 집중한다.
@@ -2337,7 +2455,8 @@ P0와 O1–O7 결과로 투고 대상을 판단한다.
 - [x] 5-OST 구성(방안 B)은 제외
 - [x] 비파괴 구성 A' 채택 (2026-10-22): jetson1–3 = 저장+연산 3-stage, jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너. 4장 설계를 3-stage 기준으로 갱신함
 - [x] jetson1–3 client 마운트 적용 (비영구, 캐시 상한 512MB). 재부팅하면 사라지므로 노드가 재시작되면 다시 마운트해야 한다
-- [ ] jetson1 멈춤(F7): 두 번째는 메모리 소진으로 확인(3.11절). 첫 번째(M8 원격 쓰기)는 기록 없음. 메모리 보호를 켜고 M8 로컬, M10, M14 진행
+- [ ] jetson1 멈춤(F7): 원인은 llama-server의 호스트 RAM prompt cache와 같은 노드 Lustre I/O의 메모리 소진(3.11절). 런타임 캐시를 끄고(`--cache-ram 0`) 메모리 보호를 켜 M8, M10, M14 재측정 완료(멈춤 없음)
+- [ ] PyTorch FP16 pipeline과 LoRA 학습에서 연산 간섭 재확인 (CPU 비중이 커서 llama.cpp Q4보다 민감할 수 있음)
 - [ ] 서버 MGS 주소 정정 (F1) — 당장은 불필요. client 마운트와 실험 조작은 정상 동작한다. 서버 재부팅, OST 추가, 영구 설정(`set_param -P`)이 필요할 때 정정한다
 - [ ] GUI 비활성화, 실험 노드의 다른 프로세스 정리 (F4)
 - [ ] 노드 간 시간 동기화 개선 (F5)
@@ -2648,6 +2767,8 @@ act_key(n)   = H(model_id ‖ "act@LG" ‖ boundary_lg ‖ chain_n)     # 경계
 | 2026-10-21 | 대상 장비를 Orin Nano 8GB × 5, 1GbE로 변경. Qwen3-4B FP16, 서빙 파이프라인 공동 학습, N0 역할 재정의 |
 | 2026-10-21 | 논문 제목(가제)과 시스템 이름 CoStripe 확정 |
 | 2026-10-21 | 의미 기반 content-addressed KV 저장소로 ② 재설계: 스트림 단위 이어 쓰기 컨텍스트, 수집 시점 prefill, 이름(내용)·위치(비용 모델)·정책(IoT 의미) 분리, pack 저장, 규칙 기반 압축, 상위 LG LoRA와 경계 activation 기반 부분 재생성. CAS 배경과 KV 사전 계산 관련 연구 추가, O7·S7·B8·C10·C11 추가, 현재 실제 구성(jetson0–3, jetson) 기록, 예상 반론과 판단 기준 추가 |
+| 2026-10-22 | M8·M10·M14를 `--cache-ram 0`으로 재측정해 반영. M14(KV 배치 정책별 TTFT) 절과 그림 추가, 3.15–3.17절 재배열 |
+| 2026-10-22 | 연구 방향 수정: 저장 I/O의 LLM 연산 감속은 3% 이내로 작아 주장에서 제외. 간섭을 공유 자원(OSS, NIC, 메모리)과 쓰기 시점으로 재정의하고 위치·배치 중심으로 문제, 비용 모델, ③, 실험 계획, 예상 반론 갱신 |
 | 2026-10-22 | 3장에 M7(OSS 공유), M10(jetson1 멈춤 분석), M11(runtime-aware), M12(read-aware relocation) 추가, 3.8–3.16절로 재배열 |
 | 2026-10-22 | 3장에 M8(원격 I/O와 LLM), M9(NIC 공유), M13(소파일과 pack), IFLustre 계승 표 추가. M1 striping 재측정 |
 | 2026-10-22 | 설계를 비파괴 구성 A'로 변경: jetson1–3 = 저장+연산 3-stage, jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너. 용어 정리(설비 → 데이터 스트림, 질의 → 요청, 불변 객체 표현 삭제) |

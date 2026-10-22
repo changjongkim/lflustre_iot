@@ -181,7 +181,67 @@ def plot_m5(mode):
                [f"{c:.1f}% (softirq {q:.1f}%)" for c, q in zip(cpu, sirq)],
                "OSS node CPU while serving one remote client (jetson3)", "% of 6 cores", 30)
 
+def llm_by_cond(path):
+    d = {}
+    for r in rows(path):
+        d.setdefault(r["label"].rsplit("_", 1)[0], []).append(r)
+    return {c: {"prefill": st.mean(float(x["prefill_tok_s"]) for x in v), "decode": st.mean(float(x["decode_tok_s"]) for x in v),
+                "gap_p99": st.mean(float(x["gap_p99_ms"]) for x in v), "n": len(v)} for c, v in d.items()}
+
+def plot_m8(mode):
+    t = THEMES[mode]
+    loc, rem = llm_by_cond(R / "m8_local_cr0/m8_llm.tsv"), llm_by_cond(R / "m8_remote_cr0/m8_llm.tsv")
+    idle = loc["idle"]
+    conds = [(rem, "rread", "Remote client reads this OST"), (rem, "rwrite", "Remote client writes this OST"),
+             (loc, "lread", "Local direct read"), (loc, "lwrite", "Local direct write"),
+             (loc, "lread_buf", "Local buffered read"), (loc, "lwrite_buf", "Local buffered write")]
+    conds = [c for c in conds if c[1] in c[0]]
+    f, ax = fig(t, h=0.62 * len(conds) + 1.4); frame(ax, t, horizontal=True)
+    y = list(range(len(conds)))[::-1]; bh = 0.3
+    for i, (key, lab, col) in enumerate([("prefill", "Prefill speed", t["s"][0]), ("decode", "Decode speed", t["s"][2])]):
+        vals = [100 * src[c][key] / idle[key] for src, c, _ in conds]
+        pos = [yy + (0.5 - i) * bh for yy in y]
+        ax.barh(pos, vals, height=bh, color=col, edgecolor=t["surface"], linewidth=2, label=lab)
+        for p_, v in zip(pos, vals):
+            ax.text(v, p_, f" {v:.0f}%", va="center", color=t["ink"], fontsize=8.5)
+    ax.axvline(100, color=t["muted"], linewidth=1)
+    ax.set_yticks(y); ax.set_yticklabels([l for _, _, l in conds]); ax.set_xlim(0, 125)
+    ax.set_xlabel("% of LLM speed with no storage I/O (jetson1, Qwen3-4B Q4, ctx 4096)", color=t["ink2"])
+    legend(ax, t, loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=2, fontsize=8.5)
+    title(ax, t, "LLM speed on an OSS node during storage I/O"); save(f, "m8-llm-under-io", mode)
+
+def plot_m14(mode):
+    t = THEMES[mode]; d = {}
+    for r in rows(R / "m14_cr0/m14.tsv"):
+        d.setdefault(r["policy"], []).append(float(r["ttft_ms"]) / 1000)
+    f, ax = fig(t, h=3.4)
+    for pol, lab, col in [("lustre_default", "Lustre default allocator", t["s"][1]), ("balanced", "Load-balanced across OSSes (consumer-blind)", t["s"][2]),
+                          ("local", "Consumer-local OST", t["s"][0])]:
+        if pol not in d: continue
+        v = sorted(d[pol]); ys = [(i + 1) / len(v) for i in range(len(v))]
+        ax.step(v, ys, where="post", color=col, linewidth=2, label=lab)
+    ax.set_xscale("log"); ax.set_ylim(0, 1.02); ax.set_xlabel("Time to first token, seconds (log)", color=t["ink2"]); ax.set_ylabel("Fraction of requests", color=t["ink2"])
+    ticks = [0.5, 1, 2, 5, 10, 20, 40]; ax.set_xticks(ticks); ax.set_xticklabels([f"{x:g}" for x in ticks]); ax.minorticks_off(); ax.set_xlim(0.5, 50)
+    legend(ax, t, loc="upper left", bbox_to_anchor=(0.2, 0.98), fontsize=8.5)
+    title(ax, t, "TTFT by KV placement policy (3 stage nodes, 12 stream contexts)"); save(f, "m14-ttft-cdf", mode)
+
+def plot_m10c(mode):
+    t = THEMES[mode]; d = R / "m10_cr0"; llm = llm_by_cond(d / "m10_llm.tsv")
+    conds = [("direct", "Direct read (no page cache)"), ("buf_cap512", "Buffered read, cache cap 512 MB"), ("buf_default", "Buffered read, default cap 3,810 MB")]
+    vals, notes = [], []
+    for c, _ in conds:
+        reps = [rows(f) for f in sorted(d.glob(f"j1_samp_{c}_*.tsv"))]
+        scans = st.mean(sum(int(x["scan_direct"]) for x in r) for r in reps)
+        kswapd = st.mean(sum(int(x["scan_kswapd"]) for x in r) for r in reps)
+        vals.append(scans / 1000)
+        notes.append(f"{scans / 1000:,.0f}k / {kswapd / 1000:,.0f}k, decode {100 * llm[c]['decode'] / llm['idle']['decode'] - 100:+.1f}%")
+    hbars_note(t, "m10c-reclaim", mode, [l for _, l in conds], vals, notes,
+               "Page reclaim during same-node Lustre reads (jetson1)", "Direct-reclaim scans per 85 s (thousands; label direct / kswapd)", max(vals) * 2.4)
+
 if __name__ == "__main__":
+    import os
     for mode in ("light", "dark"):
-        plot_m9(mode); plot_m13(mode); plot_m7(mode); plot_m11(mode); plot_m12(mode); plot_f7(mode); plot_m6(mode); plot_m10b(mode); plot_m5(mode)
+        if (R / "m8_remote_cr0/m8_llm.tsv").exists() and (R / "m8_local_cr0/m8_llm.tsv").exists(): plot_m8(mode)
+        if (R / "m14_cr0/m14.tsv").exists(): plot_m14(mode)
+        plot_m9(mode); plot_m13(mode); plot_m7(mode); plot_m11(mode); plot_m12(mode); plot_f7(mode); plot_m6(mode); plot_m10b(mode); plot_m5(mode); plot_m10c(mode)
     print(sorted(p.name for p in (ROOT / "docs/figures").glob("m*.svg") if p.name[:3] in ("m5-", "m6-", "m7-", "m9a", "m9b", "m10", "m11", "m12", "m13")))
