@@ -40,7 +40,7 @@
 - KV 파일 크기는 토큰당 144KiB로 README 계산과 일치한다.
 - 원격 복원은 8k에서 prefill보다 느리다. 이때 원격 읽기 속도가 약 53MB/s로 회선 속도의 절반이었다.
 - 8k에서는 로컬 복원도 4k 대비 3.5배 느려졌다(크기는 2배). llama-server 실행 중 남은 메모리가 약 1.8GB여서, 1.15GB 파일을 page cache로 읽는 동안 메모리 회수가 일어난 것으로 추정한다.
-- 설계 반영: KV는 소비 노드 로컬에 둔다. 읽기 경로는 direct I/O나 캐시 해제로 page cache를 거치지 않게 한다. 원격 KV는 재계산과 비교해 선택한다(README 3.8.2 2j).
+- 설계 반영: KV는 소비 노드 로컬에 둔다. 읽기 경로는 direct I/O나 캐시 해제로 page cache를 거치지 않게 한다. 원격 KV는 재계산과 비교해 선택한다(README 4.8.2절 2j).
 
 ### ③ Lustre client 캐시와 GPU 메모리 할당 (jetson1, 256MiB 단위 cudaMalloc + memset)
 
@@ -67,8 +67,8 @@
 
 | ID | 내용 | 필요한 결정 |
 |---|---|---|
-| F1 | 서버 MGS 주소가 무선 IP로 설정되어 MGS 연결이 끊김 | target을 잠시 내리고 정정할지 |
-| F2 | jetson에 NVMe 없음, jetson0 NVMe는 MDT가 전부 사용 → 5-OST 구성 불가 | 방안 A'(jetson1–3을 stage 노드로) 채택 여부 |
+| F1 | 서버 MGS 주소가 무선 IP로 설정되어 MGS 연결이 끊김 | 당장은 불필요. 서버 재부팅·OST 추가·영구 설정 때만 정정 |
+| F2 | jetson에 NVMe 없음, jetson0 NVMe는 MDT가 전부 사용 → 5-OST 구성 불가 (방안 B 제외 결정) | 방안 A'(jetson1–3을 stage 노드로) 채택 여부 |
 | F3 | jetson 송신 약 725Mb/s | 케이블·포트 교체 |
 | F4 | GUI 켜짐, jetson에 다른 프로세스 약 1.8GB | 실험 기간 GUI 끄기, 프로세스 정리 |
 | F5 | 시간 오차 12–30ms | 로컬 시간 서버 구성 |
