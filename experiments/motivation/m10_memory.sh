@@ -12,11 +12,12 @@ HERE=$(cd $(dirname $0) && pwd); W='$HOME/lflustre_iot_work/motiv'; T=/mnt/lustr
 MODEL='$HOME/lflustre_iot_work/motiv/models/Qwen3-4B-Q4_K_M.gguf'; BIN='$HOME/lflustre_iot_work/llama-bin'; PORT=8089
 rx() { $RSH "$@"; }
 srx() { local n=$1; shift; rx $n "read -r P; echo \"\$P\" | sudo -S -p '' $*" <<< "$SUDO_PW"; }   # 비밀번호는 stdin으로만 전달
-cap() { srx j1 "lctl set_param llite.*.max_cached_mb=$1" >/dev/null; rx j1 "lctl get_param -n llite.*.max_cached_mb | awk '/^max_cached_mb/{print \$2}'"; }
+getcap() { srx j1 "lctl get_param -n llite.*.max_cached_mb" | awk '/^max_cached_mb/{print $2}'; }   # 일반 사용자는 읽을 수 없다
+cap() { srx j1 "lctl set_param llite.*.max_cached_mb=$1" >/dev/null; getcap; }
 
 rx j1 "mount -t lustre | grep -q /mnt/lustrefs" || { echo "client mount missing on j1" >&2; exit 1; }
 for f in llm_probe.py sampler.py; do rx j1 "cat > $W/$f" < $HERE/$f; done
-ORIG=$(rx j1 "lctl get_param -n llite.*.max_cached_mb | awk '/^max_cached_mb/{print \$2}'")
+ORIG=$(getcap); [ -n "$ORIG" ] || { echo "cannot read cache cap" >&2; exit 1; }
 DEFAULT=$(rx j1 "awk '/MemTotal/{print int(\$2/2048)}' /proc/meminfo")
 echo "cache cap before: $ORIG MB, default (RAM/2): $DEFAULT MB" | tee $OUT/m10_info.txt
 rx j1 "mkdir -p $T && lfs setstripe -c 1 -i 0 $T/f3g && dd if=/dev/zero of=$T/f3g bs=4M count=768 oflag=direct status=none && [ \$(lfs getstripe -i $T/f3g) = 0 ]" \

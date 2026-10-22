@@ -35,11 +35,15 @@
   - [3.5 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다](#35-관찰-m4-lustre-client-캐시가-8gb-메모리를-잠식하고-gpu-할당을-늦춘다)
   - [3.6 관찰 M5: 다른 노드의 I/O가 서버 노드에 주는 부담은 작다](#36-관찰-m5-다른-노드의-io가-서버-노드에-주는-부담은-작다)
   - [3.7 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다](#37-관찰-m6-엣지-llm-플래너는-형식은-지키지만-내용-검증이-필요하다)
-  - [3.8 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다](#38-관찰-m8-다른-노드의-읽기를-처리하는-oss-노드에서-llm-연산은-거의-느려지지-않는다)
-  - [3.9 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다](#39-관찰-m9-stage-노드의-저장-io가-stage-사이-activation-전달을-24배-늦춘다)
-  - [3.10 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고, pack에 붙이면 30배 빠르다](#310-관찰-m13-iot-레코드를-파일-단위로-쓰면-mds-요청이-병목이고-pack에-붙이면-30배-빠르다)
-  - [3.11 IFLustre 이점의 계승과 남은 실측](#311-iflustre-이점의-계승과-남은-실측)
-  - [3.12 관찰에서 설계로](#312-관찰에서-설계로)
+  - [3.8 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 총 처리량이 그 OSS의 NIC 하나로 묶인다](#38-관찰-m7-여러-흐름이-oss-하나를-공유하면-총-처리량이-그-oss의-nic-하나로-묶인다)
+  - [3.9 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다](#39-관찰-m8-다른-노드의-읽기를-처리하는-oss-노드에서-llm-연산은-거의-느려지지-않는다)
+  - [3.10 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다](#310-관찰-m9-stage-노드의-저장-io가-stage-사이-activation-전달을-24배-늦춘다)
+  - [3.11 관찰 M10 (예비): LLM 서버와 같은 노드의 Lustre I/O가 8GB 메모리를 소진해 노드가 멈췄다](#311-관찰-m10-예비-llm-서버와-같은-노드의-lustre-io가-8gb-메모리를-소진해-노드가-멈췄다)
+  - [3.12 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다](#312-관찰-m11-체크포인트-쓰기를-kv-복원과-겹치면-복원이-41-느려지고-시점을-미루면-2로-줄어든다)
+  - [3.13 관찰 M12: 원격 KV는 첫 사용 후 소비 노드로 옮기면, 이동 비용을 포함해도 세 번째 사용부터 이득이다](#313-관찰-m12-원격-kv는-첫-사용-후-소비-노드로-옮기면-이동-비용을-포함해도-세-번째-사용부터-이득이다)
+  - [3.14 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고, pack에 붙이면 30배 빠르다](#314-관찰-m13-iot-레코드를-파일-단위로-쓰면-mds-요청이-병목이고-pack에-붙이면-30배-빠르다)
+  - [3.15 IFLustre 이점의 계승과 남은 실측](#315-iflustre-이점의-계승과-남은-실측)
+  - [3.16 관찰에서 설계로](#316-관찰에서-설계로)
 - [4. Design](#4-design)
   - [4.1 대상 환경](#41-대상-환경)
   - [4.2 대상 시나리오와 워크로드](#42-대상-시나리오와-워크로드)
@@ -766,7 +770,29 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 
 **시사점:** 결정 지연은 이벤트 단위 재계획에 쓸 수 있는 수준이다. 하지만 검증기와 조치별 입력 형식 제한이 필수이고, 플래너 모델 크기와 배치 노드를 다시 정해야 한다(메모리 4.1GB).
 
-### 3.8 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다
+### 3.8 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 총 처리량이 그 OSS의 NIC 하나로 묶인다
+
+client 3개(jetson, jetson1, jetson3)가 동시에 30초 동안 2GiB 파일을 direct I/O(4MiB, iodepth 16)로 읽거나 쓴다. 2회 반복(`experiments/motivation/m7_oss_share.sh`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m7-oss-sharing-dark.svg">
+  <img alt="client 3개의 총 처리량: OSS 하나를 공유하면 읽기·쓰기 모두 120MB/s, 서로 다른 OSS로 나누면 읽기 303MB/s(2.5배), 쓰기 243MB/s(2.0배)" src="docs/figures/m7-oss-sharing-light.svg" width="620">
+</picture>
+
+| 조건 | 읽기: jetson / jetson1 / jetson3 (합계) | 쓰기: jetson / jetson1 / jetson3 (합계) |
+|---|---|---|
+| 세 흐름이 OST0001(jetson2) 하나를 공유 | 76–92 / 14–21 / 17–21MB/s (120) | 40 / 40 / 40MB/s (120) |
+| 서로 다른 OSS (OST0001 / OST0002 / OST0000) | 115 / 94 / 94MB/s (303, 2.5배) | 93 / 75 / 75MB/s (243, 2.0배) |
+| jetson의 3-stripe 파일, 혼자 | 117.6MB/s | 93.0MB/s |
+| jetson의 3-stripe 파일 + OST0001에 다른 흐름 2개 | 110.8MB/s (−6%) | 69.5MB/s (−25%) |
+
+**시사점:**
+- 원 IFLustre의 interference-free allocation이 전제로 삼은 OSS 공유 간섭이 엣지에서도 그대로 나타난다. OSS마다 1GbE NIC가 상한이므로, 흐름을 서로 다른 OSS로 나누면 총 처리량이 2–2.5배가 된다.
+- 공유할 때 몫이 고르지 않다. 읽기에서 한 흐름은 14MB/s까지 떨어졌다. 지연에 민감한 흐름이 붐비는 OSS에 놓이면 크게 느려진다.
+- 원 IFLustre의 "가장 느린 OSS가 성능을 정한다"는 관찰도 나타난다. 쓰기에서는 붐비는 OST 하나가 3-stripe 파일 전체를 25% 늦춘다. 읽기에서 영향이 6%로 작은 것은, 이 파일이 OST마다 필요로 하는 속도(약 39MB/s)가 공유 상태에서 받는 몫과 비슷하기 때문이다.
+- OSS를 가진 노드(jetson1, jetson3)가 client로 원격 OST를 읽으면 94MB/s로, client 전용 노드(115MB/s)보다 낮다. 원인은 확인하지 않았다.
+
+### 3.9 관찰 M8: 다른 노드의 읽기를 처리하는 OSS 노드에서 LLM 연산은 거의 느려지지 않는다
 
 jetson1에서 llama-server(Qwen3-4B Q4_K_M, 모델은 로컬 디스크)를 실행하고, 요청마다 2,048토큰 prefill과 128토큰 decode를 측정했다. 그동안 jetson(client)이 jetson1의 OST0000을 읽거나 쓴다. 조건마다 요청 5개를 보냈다(`experiments/motivation/m8_oss_llm.sh`).
 
@@ -778,10 +804,10 @@ jetson1에서 llama-server(Qwen3-4B Q4_K_M, 모델은 로컬 디스크)를 실�
 
 **시사점:**
 - OSS가 원격 읽기를 회선 최대 속도로 처리해도 같은 노드의 prefill·decode는 1% 안팎만 느려진다. M5(서버 CPU 약 2%)와 일치한다. 원격 I/O는 연산이 아니라 NIC를 통해 LLM에 영향을 준다(M9).
-- 원격 쓰기 조건에서 jetson1이 응답을 멈추고 재부팅되었다(17:46경). 첫 재부팅 직후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`)의 NULL 참조로 커널 panic이 한 번 더 발생했고, 두 번째 부팅에서 OST0000이 자동으로 다시 마운트되어 client가 복구되었다. 첫 멈춤의 원인 기록은 남지 않았다(ramoops에는 두 번째 panic만 남음). 한 번의 사례이므로, 노드 내부 샘플러로 전력·온도·메모리를 기록하면서 재현을 시도한다(`docs/testbed.md` F7).
+- 원격 쓰기 조건에서 jetson1이 응답을 멈추고 재부팅되었다(17:46경). 첫 재부팅 직후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`)의 NULL 참조로 커널 panic이 한 번 더 발생했고, 두 번째 부팅에서 OST0000이 자동으로 다시 마운트되어 client가 복구되었다. 첫 멈춤의 원인 기록은 남지 않았다(ramoops에는 두 번째 panic만 남음). 두 번째 멈춤(M10 측정 중)은 감시 기록으로 메모리 소진이 원인임을 확인했다(3.11절, `docs/testbed.md` F7).
 - 같은 노드의 로컬 I/O와 LLM의 간섭(M8 로컬 조건)은 stage 노드에 client를 마운트한 뒤 측정한다.
 
-### 3.9 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다
+### 3.10 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다
 
 jetson1(stage 1)에서 jetson2(stage 2)로 activation을 TCP로 보내고, 그동안 jetson(client)이 fio로 저장 I/O를 낸다. activation 크기는 Qwen3-4B hidden 2560, FP16 기준 토큰당 5,120B이다(`experiments/motivation/act_probe.py`). 각 조건 2회, 노드 내부 샘플러로 NIC 사용량을 확인했다.
 
@@ -808,7 +834,71 @@ jetson1(stage 1)에서 jetson2(stage 2)로 activation을 TCP로 보내고, 그�
 - decode 메시지도 송신 링크를 공유하면 왕복이 0.6ms에서 4.6ms로 늘어난다. 영향을 받는 hop마다 토큰당 약 4ms가 더해진다.
 - M5·M8에서 원격 I/O가 서버의 CPU와 연산에 주는 영향은 작았다. 그러나 NIC 공유를 통해 LLM pipeline에는 큰 영향을 준다. 원 IFLustre가 다룬 OSS 사이의 간섭이, 하이퍼컨버지드 구성에서는 OSS와 pipeline 사이의 간섭으로 넓어진다.
 
-### 3.10 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고, pack에 붙이면 30배 빠르다
+### 3.11 관찰 M10 (예비): LLM 서버와 같은 노드의 Lustre I/O가 8GB 메모리를 소진해 노드가 멈췄다
+
+M10(메모리 압박 시 LLM 성능)을 측정하던 중 jetson1이 멈췄다. 같은 노드는 M8 원격 쓰기 조건에서도 한 번 멈췄다(`docs/testbed.md` F7). 두 번째에는 노드 내부 감시 샘플러(1초 간격, 매 줄 fsync)가 직전 상태를 남겼다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10-jetson1-hang-dark.svg">
+  <img alt="jetson1 메모리 추이: MemAvailable이 LLM 서버 로드와 요청마다 줄어 906MB가 된 뒤, 같은 노드의 Lustre direct 읽기가 시작되자 41MB까지 떨어지고 zram 스왑이 3.4GB까지 차면서 노드가 멈춤" src="docs/figures/m10-jetson1-hang-light.svg" width="620">
+</picture>
+
+| 그림 번호 | 내용 | MemAvailable |
+|---|---|---|
+| 1 | M12: llama-server 시작 (Qwen3-4B Q4_K_M, 모델을 Lustre에서 mmap, ctx 4608) | 6,550 → 약 2,700MB |
+| 2 | M12 서버 종료 | 5,491MB (시작 전보다 약 1GB 적음) |
+| 3 | M10: llama-server 시작 (모델은 로컬 디스크, ctx 8192) | 5,479 → 2,216MB |
+| 4 | LLM 요청 5개 (2k prefill + 128 decode). 요청마다 KV 페이지가 약 300MB씩 확보됨 | 2,216 → 906MB |
+| 5 | 같은 노드에서 Lustre direct 읽기 시작 (자기 client → 자기 OSS) | 906 → 41MB, zram 스왑 0 → 3.4GB |
+| 6 | 응답 없음, 약 3분 뒤 재부팅. client 마운트가 사라지고 OST0000은 자동으로 다시 마운트됨 | – |
+
+**시사점:**
+- 8GB 노드에서 Q4 모델 서버 하나(ctx 8192)가 KV를 채우면 약 4.6GB를 쓴다. 남은 메모리를 같은 노드의 저장 계층이 쓰면 노드 전체가 멈춘다. client 캐시 상한(512MB)이 걸려 있었는데도 일어났다. 이 상한은 client page cache만 제한하며, OSS 쪽 처리, RPC 버퍼, Lustre에서 mmap한 파일의 페이지는 제한하지 않는다.
+- jetson2에서 따로 확인한 결과, Lustre에서 모델을 mmap한 서버가 끝난 뒤 약 1.3GB가 MemAvailable에서 빠졌고 `drop_caches` 후에야 돌아왔다. 로컬 디스크 모델에서는 생기지 않았다.
+- M4에서는 캐시가 GPU 할당을 늦추는 정도였지만, LLM이 상주한 상태에서는 노드 가용성 문제가 된다. 메모리 제약(4.9.3절)과 상주 집합 관리(4.8.2절)가 성능 최적화가 아니라 필수 조건인 근거이다.
+- 다음 측정은 메모리 보호(MemAvailable 700MB 미만이면 실험 프로세스 종료)를 켜고 진행한다. 서버 ctx와 저장 I/O 종류별로 남는 메모리와 LLM 성능을 잰다.
+
+### 3.12 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다
+
+jetson3에서 4k 토큰 KV(576MiB)를 3초 간격으로 10번 복원한다(매번 캐시 비움). 같은 로컬 OST에 체크포인트 파일(1GiB)을 쓴다(`experiments/motivation/kv_restore_bench.py`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m11-runtime-aware-dark.svg">
+  <img alt="KV 복원 시간 중앙값: 체크포인트 없음 663ms, 동시 최대 속도 932ms, 100MB/s 제한 696ms(최대 5,378ms), 복원 사이로 지연 679ms" src="docs/figures/m11-runtime-aware-light.svg" width="620">
+</picture>
+
+| 조건 | KV 복원 중앙값 (최대) | 체크포인트 쓰기 속도 |
+|---|---|---|
+| 체크포인트 없음 | 663ms (738) | – |
+| 동시에 최대 속도로 쓰기 | 932ms (1,012), +41% | 1,472MiB/s |
+| 100MB/s로 제한 | 696ms (5,378), +5% | 102MiB/s |
+| 복원 사이로 미루기 (복원이 끝나면 256MiB씩) | 679ms (698), +2% | 45MiB/s |
+
+**시사점:**
+- 원 IFLustre의 runtime-aware allocation(기다릴지, 공유할지)이 엣지에서도 의미가 있다. 같은 OST에서 체크포인트를 최대 속도로 함께 쓰면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다.
+- 대신 체크포인트 속도가 1,472 → 102 → 45MiB/s로 줄어든다. 어느 쪽을 택할지는 체크포인트 크기와 마감 시간으로 정해야 한다. 비용 모델의 시점 결정이 필요한 이유이다.
+- 속도 제한 조건에서도 한 번 5.4초가 걸렸다. 속도 제한만으로는 꼬리 지연을 막지 못할 수 있다.
+
+### 3.13 관찰 M12: 원격 KV는 첫 사용 후 소비 노드로 옮기면, 이동 비용을 포함해도 세 번째 사용부터 이득이다
+
+jetson1이 원격 OST0001에 있는 4k 토큰 KV(576MiB)를 5번 쓴다. 세 방식을 비교한다(`experiments/motivation/kv_restore_bench.py`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m12-relocation-dark.svg">
+  <img alt="같은 KV를 5번 쓸 때 누적 시간: 매번 재계산 35.1초, 원격 유지 27.3초, 첫 사용 후 로컬 이동 14.8초" src="docs/figures/m12-relocation-light.svg" width="620">
+</picture>
+
+| 방식 | 1회째 | 2회째부터 (회당) | 5회 누적 |
+|---|---|---|---|
+| 매번 재계산 (prefill) | 7.15초 | 약 6.98초 | 35.1초 |
+| 원격 OST에서 복원 | 5.49초 | 약 5.46초 | 27.3초 |
+| 첫 사용 후 `lfs migrate`로 로컬 OST로 이동 | 5.49초 + 이동 6.50초 | 약 0.70초 | 14.8초 |
+
+**시사점:**
+- IoTJ 버전의 read-aware relocation이 KV에서도 성립한다. 이동 비용을 요청 경로에 포함해도 세 번째 사용부터 원격 유지보다 빠르고, 재계산보다는 두 번째 사용부터 빠르다. 이동을 백그라운드에서 하면 두 번째 사용부터 이득이다.
+- 어떤 KV를 옮길지는 재사용 횟수 예측이 정한다. 같은 데이터 스트림에 대한 반복 요청 같은 의미 정보가 그 예측의 근거가 된다(4.8.2절).
+
+### 3.14 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고, pack에 붙이면 30배 빠르다
 
 jetson(client)에서 512B IoT 레코드 3,000개를 세 방식으로 쓴다. 레코드당 파일과 256KiB 창 파일은 fsync하지 않고, pack은 32개마다 fsync한다(pack에 불리한 비교). 2회 반복(`experiments/motivation/m13_smallfile.py`).
 
@@ -828,7 +918,7 @@ jetson(client)에서 512B IoT 레코드 3,000개를 세 방식으로 쓴다. 레
 - 256KiB 파일도 47MB/s로 큰 파일 쓰기(93MB/s)의 절반이다.
 - 같은 레코드를 pack에 붙이면 30배 빠르고 MDS 요청은 약 1/1,500이다. KV chunk를 pack 단위로 저장하는 설계(4.8.2절)의 근거이다.
 
-### 3.11 IFLustre 이점의 계승과 남은 실측
+### 3.15 IFLustre 이점의 계승과 남은 실측
 
 CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에서도 성립해야 한다. 아래 표는 IFLustre의 정책·관찰별로 엣지에서의 확인 결과와 남은 실측을 정리한 것이다. 상세 계획은 `docs/motivation_plan.md`에 있다.
 
@@ -836,18 +926,18 @@ CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에
 |---|---|---|---|
 | 소파일은 striping 효과가 없음 (IoTJ) | 레코드당 파일은 MDS 요청이 병목, stripe 무관 | M13 | 확인 (pack 30배) |
 | Throughput-aware allocation (많은 OSS 사용) | 단일 client는 자기 NIC가 상한 | M1 | 확인 (stripe 1–3 차이 2% 이내) |
-| Interference-free allocation (OSS 공유 회피) | OSS마다 1GbE가 상한. 흐름이 한 OSS를 공유하면 각자 줄어든다 | M7 | 예정 |
-| 가장 느린 OSS가 성능을 결정 | 여러 OST에 걸친 파일은 붐비는 stage 노드 OST가 속도를 정한다 | M7 | 예정 |
-| Runtime-aware allocation (대기 대 공유) | 체크포인트·복제 쓰기가 KV 복원과 겹치지 않게 시점을 미룬다 | M11 | 예정 |
-| Read-aware relocation (IoTJ) | 반복 읽히는 원격 KV를 소비 노드 OST로 옮긴다 | M12 | 예정 |
+| Interference-free allocation (OSS 공유 회피) | OSS마다 1GbE가 상한. 흐름이 한 OSS를 공유하면 각자 줄어든다 | M7 | 확인 (공유 시 합계 120MB/s, 분산 시 2–2.5배) |
+| 가장 느린 OSS가 성능을 결정 | 여러 OST에 걸친 파일은 붐비는 stage 노드 OST가 속도를 정한다 | M7 | 확인 (쓰기 −25%, 읽기 −6%) |
+| Runtime-aware allocation (대기 대 공유) | 체크포인트·복제 쓰기가 KV 복원과 겹치지 않게 시점을 미룬다 | M11 | 확인 (동시 +41%, 지연 +2%) |
+| Read-aware relocation (IoTJ) | 반복 읽히는 원격 KV를 소비 노드 OST로 옮긴다 | M12 | 확인 (5회 사용 시 27.3초 → 14.8초) |
 | (확장) 간섭 범위: NIC | 저장 I/O가 activation 전달을 늦춘다 | M9 | 확인 (2–4배) |
 | (확장) 간섭 범위: 같은 노드 연산 | 원격 읽기는 영향 작음. 로컬 I/O는 측정 필요 | M8 | 원격 확인, 로컬 예정 |
-| (확장) 간섭 범위: 메모리 | 캐시가 메모리를 잠식하고 GPU 할당을 늦춘다 | M4, M10 | M4 확인, M10 예정 |
+| (확장) 간섭 범위: 메모리 | 캐시가 메모리를 잠식하고 GPU 할당을 늦춘다. LLM이 상주하면 노드가 멈출 수 있다 | M4, M10 | M4 확인, M10 노드 정지 2회 (메모리 보호를 켜고 재측정 예정) |
 | (종합) 배치 정책별 TTFT | Lustre 기본 할당 / OSS 부하 기반 분산 / 소비 노드 배치 | M14 | 예정 (프로토타입 `kv_router.py` 작성 완료) |
 
-예정 항목은 stage 노드(jetson1–3)에 Lustre client를 마운트한 뒤 측정한다.
+남은 항목(M8 로컬 조건, M10 재측정, M14)은 메모리 보호를 켜고 측정한다.
 
-### 3.12 관찰에서 설계로
+### 3.16 관찰에서 설계로
 
 | 관찰 | 시사점 | 설계 반영 |
 |---|---|---|
@@ -859,6 +949,10 @@ CoStripe가 IFLustre의 확장이 되려면, 원 IFLustre의 전제가 엣지에
 | M6 플래너는 형식만 신뢰 가능, 메모리 4.1GB | 검증기 필수, 모델 크기 재결정 | 4.8.5절 |
 | M8 원격 읽기를 처리하는 OSS 노드의 LLM 감속은 1% 안팎 | 연산 간섭(β)은 로컬 I/O 중심으로 모델링 | 4.8.4, 4.9.3절 |
 | M9 저장 I/O가 같은 NIC의 activation 전달을 2–4배 늦춤 | OST 선택 시 그 노드의 NIC 송신 부하와 pipeline 위치를 함께 본다 | 4.9.3절 (A_k, U_k), 4.9.7절 |
+| M7 OSS 공유 시 합계가 NIC 하나로 묶임, 분산하면 2–2.5배 | 동시 흐름을 서로 다른 OSS로 분산 (interference-free 계승) | 4.9.7절 |
+| M10 LLM 상주 노드에서 저장 계층 메모리가 노드를 멈추게 함 | 메모리 제약은 필수 조건, 캐시 상한 외 저장 계층 메모리도 예산에 포함 | 4.1.4, 4.9.3절 |
+| M11 체크포인트와 KV 복원이 겹치면 +41%, 미루면 +2% | 백그라운드 쓰기의 시점 지연 (runtime-aware 계승) | 4.8.3, 4.9.7절 |
+| M12 원격 KV는 이동 후 세 번째 사용부터 이득 | 재사용 예측 기반 migrate (read-aware relocation 계승) | 4.8.2, 4.9.7절 |
 | M13 레코드당 파일은 MDS가 병목, pack은 30배 | KV chunk와 수집 레코드를 pack 단위로 저장 | 4.8.2절 |
 
 ---
@@ -2203,8 +2297,8 @@ P0와 O1–O7 결과로 투고 대상을 판단한다.
 - [x] Lustre 버전, 백엔드, 기능 지원, `max_cached_mb` 기본값 (2.17.0, ldiskfs, C1 통과, 3,810MB)
 - [x] 5-OST 구성(방안 B)은 제외
 - [x] 비파괴 구성 A' 채택 (2026-10-22): jetson1–3 = 저장+연산 3-stage, jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너. 4장 설계를 3-stage 기준으로 갱신함
-- [ ] jetson1–3 client 마운트 적용 (비영구, 캐시 상한 512MB, 사용자 승인 후)
-- [ ] M8 원격 쓰기 조건에서 jetson1이 멈춘 원인 확인 (`docs/testbed.md` F7)
+- [x] jetson1–3 client 마운트 적용 (비영구, 캐시 상한 512MB). 재부팅하면 사라지므로 노드가 재시작되면 다시 마운트해야 한다
+- [ ] jetson1 멈춤(F7): 두 번째는 메모리 소진으로 확인(3.11절). 첫 번째(M8 원격 쓰기)는 기록 없음. 메모리 보호를 켜고 M8 로컬, M10, M14 진행
 - [ ] 서버 MGS 주소 정정 (F1) — 당장은 불필요. client 마운트와 실험 조작은 정상 동작한다. 서버 재부팅, OST 추가, 영구 설정(`set_param -P`)이 필요할 때 정정한다
 - [ ] GUI 비활성화, 실험 노드의 다른 프로세스 정리 (F4)
 - [ ] 노드 간 시간 동기화 개선 (F5)
@@ -2515,6 +2609,7 @@ act_key(n)   = H(model_id ‖ "act@LG" ‖ boundary_lg ‖ chain_n)     # 경계
 | 2026-10-21 | 대상 장비를 Orin Nano 8GB × 5, 1GbE로 변경. Qwen3-4B FP16, 서빙 파이프라인 공동 학습, N0 역할 재정의 |
 | 2026-10-21 | 논문 제목(가제)과 시스템 이름 CoStripe 확정 |
 | 2026-10-21 | 의미 기반 content-addressed KV 저장소로 ② 재설계: 스트림 단위 이어 쓰기 컨텍스트, 수집 시점 prefill, 이름(내용)·위치(비용 모델)·정책(IoT 의미) 분리, pack 저장, 규칙 기반 압축, 상위 LG LoRA와 경계 activation 기반 부분 재생성. CAS 배경과 KV 사전 계산 관련 연구 추가, O7·S7·B8·C10·C11 추가, 현재 실제 구성(jetson0–3, jetson) 기록, 예상 반론과 판단 기준 추가 |
+| 2026-10-22 | 3장에 M7(OSS 공유), M10(jetson1 멈춤 분석), M11(runtime-aware), M12(read-aware relocation) 추가, 3.8–3.16절로 재배열 |
 | 2026-10-22 | 3장에 M8(원격 I/O와 LLM), M9(NIC 공유), M13(소파일과 pack), IFLustre 계승 표 추가. M1 striping 재측정 |
 | 2026-10-22 | 설계를 비파괴 구성 A'로 변경: jetson1–3 = 저장+연산 3-stage, jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너. 용어 정리(설비 → 데이터 스트림, 질의 → 요청, 불변 객체 표현 삭제) |
 | 2026-10-22 | 3장 Motivation(테스트베드 실측, 그림 7종) 신설, 이후 장 번호 한 칸씩 이동. 5-OST 방안 제외 |

@@ -10,13 +10,13 @@ IF = sys.argv[3] if len(sys.argv) > 3 else "enP8p1s0"
 GPU_LOAD = "/sys/devices/platform/bus@0/17000000.gpu/load"   # 0–1000
 VMSTAT_KEYS = ("pgscan_kswapd", "pgscan_direct", "pgsteal_kswapd", "pgsteal_direct", "pswpout", "pgmajfault")
 
-emc = {"emc": "", "gr3d": ""}
+emc = {"emc": "", "gr3d": "", "vdd_in": "", "tj": ""}
 
 def tegra_reader(proc):
     for line in proc.stdout:
-        m = re.search(r"EMC_FREQ (\d+)%", line); g = re.search(r"GR3D_FREQ (\d+)%", line)
-        if m: emc["emc"] = m.group(1)
-        if g: emc["gr3d"] = g.group(1)
+        for k, pat in (("emc", r"EMC_FREQ (\d+)%"), ("gr3d", r"GR3D_FREQ (\d+)%"), ("vdd_in", r"VDD_IN (\d+)mW"), ("tj", r"tj@([\d.]+)C")):
+            m = re.search(pat, line)
+            if m: emc[k] = m.group(1)
 
 def cpu():
     v = list(map(int, open("/proc/stat").readline().split()[1:8]))
@@ -50,7 +50,7 @@ if os.environ.get("SUDO_PW"):
 
 with open(OUT, "w") as f:
     f.write("t\tcpu_pct\tiowait_pct\tsoftirq_pct\trx_MBs\ttx_MBs\tmem_avail_MiB\tcached_MiB\tdirty_MiB\tswap_used_MiB\t"
-            "scan_kswapd\tscan_direct\tswpout\tmajfault\tgpu_pct\temc_pct\n")
+            "scan_kswapd\tscan_direct\tswpout\tmajfault\tgpu_pct\temc_pct\tvdd_in_mW\ttj_C\n")
     c0, n0, v0, t0 = cpu(), net(), vmstat(), time.time()
     end = t0 + DUR
     while time.time() < end:
@@ -63,8 +63,8 @@ with open(OUT, "w") as f:
         f.write(f"{t1:.1f}\t{100*(tot-dc[3]-dc[4])/tot:.1f}\t{100*dc[4]/tot:.1f}\t{100*dc[6]/tot:.1f}\t"
                 f"{(n1[0]-n0[0])/dt/1e6:.1f}\t{(n1[1]-n0[1])/dt/1e6:.1f}\t{m['MemAvailable']}\t{m['Cached']}\t{m['Dirty']}\t"
                 f"{m['SwapTotal']-m['SwapFree']}\t{v1['pgscan_kswapd']-v0['pgscan_kswapd']}\t{v1['pgscan_direct']-v0['pgscan_direct']}\t"
-                f"{v1['pswpout']-v0['pswpout']}\t{v1['pgmajfault']-v0['pgmajfault']}\t{gpu}\t{emc['emc'] if tegra else ''}\n")
-        f.flush()
+                f"{v1['pswpout']-v0['pswpout']}\t{v1['pgmajfault']-v0['pgmajfault']}\t{gpu}\t{emc['emc']}\t{emc['vdd_in']}\t{emc['tj']}\n")
+        f.flush(); os.fsync(f.fileno())   # 노드가 멈춰도 직전 기록이 남도록 (F7)
         c0, n0, v0, t0 = c1, n1, v1, t1
 
 if tegra:

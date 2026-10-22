@@ -73,7 +73,7 @@
 | F4 | GUI 켜짐, jetson에 다른 프로세스 약 1.8GB | 실험 기간 GUI 끄기, 프로세스 정리 |
 | F5 | 시간 오차 12–30ms | 로컬 시간 서버 구성 |
 | F6 | SSH 조회가 CPU 측정을 오염 | 노드 내부 샘플러 사용 (적용함, `experiments/motivation/sampler.py`) |
-| F7 | 원격 쓰기 + LLM 실행 중 jetson1 재부팅, 이후 부팅 중 NVIDIA 드라이버 panic 1회 (`docs/testbed.md`) | 진단 기록을 켜고 1회 재현할지 |
+| F7 | jetson1이 LLM 실행 중 두 번 멈춤. 두 번째는 메모리 소진(MemAvailable 41MB, zram 3.4GB)으로 확인 (`docs/testbed.md`, README 3.11절) | 메모리 보호를 켜고 남은 실험(M8 로컬, M10, M14) 진행 |
 | – | PyTorch 미설치 | 설치 방식(NVIDIA wheel / jetson-containers) |
 | – | 플래너 메모리 4.1GB | 플래너 모델 크기(4B/1.7B)와 배치 노드 |
 

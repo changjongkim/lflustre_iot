@@ -11,6 +11,8 @@ HERE=$(cd $(dirname $0) && pwd); W='$HOME/lflustre_iot_work/motiv'; T=/mnt/lustr
 MODEL_SRC=/mnt/lustrefs/llmio_test/models; MODEL=Qwen3-4B-Q4_K_M.gguf; PORT=8089; BG_RT=100
 CONDS=${CONDS:-"idle rread rwrite"}; [ "$LOCAL" = 1 ] && CONDS="idle lread lwrite lread_buf lwrite_buf"
 rx() { $RSH "$@"; }
+# 로컬 조건에서 마운트가 없으면 fio가 microSD 루트 파일 시스템에 쓰게 된다 (재부팅으로 마운트가 사라진 경우)
+[ "$LOCAL" = 1 ] && { rx j1 "mount -t lustre | grep -q ' /mnt/lustrefs '" || { echo "client mount missing on j1" >&2; exit 1; }; }
 fio_cmd() { # file rw direct runtime
   echo "fio --name=m8bg --filename=$1 --rw=$2 --bs=4M --size=2G --direct=$3 --ioengine=libaio --iodepth=16 --time_based --runtime=$4 --output-format=json"; }
 fio_bw() { python3 -c "

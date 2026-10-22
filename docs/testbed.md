@@ -85,7 +85,7 @@
 | F4 | 5대 모두 GUI(graphical.target)가 켜져 있고, jetson에는 다른 에이전트 프로세스가 실행 중이다. | 실험과 무관한 메모리 사용(jetson 약 1.8GB)으로 메모리 실측과 간섭 측정이 왜곡된다. | 실험 기간 multi-user.target 전환, 실험 노드에서 다른 프로세스 중지 |
 | F5 | 노드 간 시각 오차가 NTP 기준 12–30ms이다. | 노드 간 이벤트 정렬 정확도가 떨어진다(목표 1ms). | jetson0를 로컬 시간 서버로 하는 chrony 구성 |
 | F6 | 측정 중 SSH로 상태를 자주 조회하면 polkitd·dbus CPU가 증가한다. jetson2는 다른 노드보다 측정 중 CPU 사용률이 높게 나왔다(13–19% vs 약 2%). | OSS CPU 측정값이 오염된다. | 본 실험에서는 노드 안에서 직접 기록하는 샘플러 사용 |
-| F7 | M8 원격 쓰기 조건(jetson이 OST0000에 약 93MB/s로 쓰고, jetson1에서 llama-server decode 실행) 중 jetson1이 17:46경 응답을 멈추고 재부팅되었다. 17:49 부팅 21초 후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`) NULL 참조로 커널 panic이 한 번 더 발생했다. 17:52 부팅에서 `lustre-starter` 서비스가 OST0000을 자동 마운트했고(MGS 무선 주소 실패 후 유선 `.50`으로 진행, 약 50초), client는 복구되었다. | 첫 멈춤의 원인 기록이 없다(ramoops에는 두 번째 panic만 남음). 같은 조건 재현 시 데이터가 있는 OST가 다시 비정상 종료될 수 있다. | 노드 내부 샘플러로 전력(VDD_IN)·온도·메모리를 초 단위로 기록하며 1회 재현 시도. 반복되면 저장 쓰기와 GPU 연산 동시 실행 조건을 제한 |
+| F7 | jetson1이 두 번 멈췄다. (1) 17:46경 M8 원격 쓰기 조건(jetson이 OST0000에 약 93MB/s로 쓰고 jetson1에서 llama-server decode 실행). 이어진 부팅 21초 후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`) NULL 참조로 커널 panic 1회. (2) 18:22경 M10 측정 중. 감시 샘플러 기록으로는 llama-server(ctx 8192, 약 4.6GB)와 같은 노드의 Lustre direct 읽기가 겹치며 MemAvailable 41MB, zram 스왑 3.4GB에 이른 뒤 멈췄다(README 3.11절). 두 번 모두 `lustre-starter`가 OST0000을 자동 마운트해 복구되었고, client 마운트는 사라졌다. | LLM이 상주한 노드에서 저장 계층 메모리가 노드 가용성을 해친다. client 캐시 상한(512MB)으로는 막지 못했다. Lustre에서 mmap한 모델은 서버 종료 후 약 1.3GB가 MemAvailable에서 빠진다(jetson2 확인, `drop_caches`로 회복). | 실험 중 메모리 보호(`experiments/motivation/memguard.sh`, MemAvailable 700MB 미만이면 실험 프로세스 종료), 모델은 로컬 디스크 사본 사용, 시작 전 캐시 비우기 |
 
 ## 5. 사전 점검 결과
 

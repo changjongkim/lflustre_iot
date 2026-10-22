@@ -1,0 +1,5 @@
+cond	cap_MB	fio_MB_s
+buf_default_1		0.0
+direct_2		0.0
+buf_cap512_2		0.0
+buf_default_2		0.0
