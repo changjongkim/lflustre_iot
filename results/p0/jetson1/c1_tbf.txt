@@ -1,0 +1,11 @@
+before: fifo=started crrn=stopped orr=stopped trr=stopped tbf=stopped delay=stopped 
+set tbf jobid: ok
+after enable: fifo=started crrn=stopped orr=stopped trr=stopped tbf=started delay=stopped 
+add rule: ok
+p0test {dd.*} 10, ref 0
+default {*} 10000, ref 0
+p0test {dd.*} 10, ref 0
+default {*} 10000, ref 0
+stop rule: ok
+restore fifo: ok
+restored: fifo=started crrn=stopped orr=stopped trr=stopped tbf=stopped delay=stopped 

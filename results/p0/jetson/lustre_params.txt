@@ -1,0 +1,51 @@
+
+===== client
+llite.lustrefs-ffff0000b3adc000.max_cached_mb=
+users: 6
+max_cached_mb: 3810
+used_mb: 0
+unused_mb: 3810
+unevict_mb: 0
+reclaim_count: 0
+max_read_ahead_mb: 256
+used_read_ahead_mb: 0
+llite.lustrefs-ffff0000b3adc000.max_read_ahead_mb=256
+osc.lustrefs-OST0000-osc-ffff0000b3adc000.checksums=1
+osc.lustrefs-OST0001-osc-ffff0000b3adc000.checksums=1
+osc.lustrefs-OST0002-osc-ffff0000b3adc000.checksums=1
+osc.lustrefs-OST0000-osc-ffff0000b3adc000.checksum_type=adler crc32c t10ip512 [t10ip4K] t10crc512 t10crc4K 
+osc.lustrefs-OST0001-osc-ffff0000b3adc000.checksum_type=adler crc32c t10ip512 [t10ip4K] t10crc512 t10crc4K 
+osc.lustrefs-OST0002-osc-ffff0000b3adc000.checksum_type=adler crc32c t10ip512 [t10ip4K] t10crc512 t10crc4K 
+osc.lustrefs-OST0000-osc-ffff0000b3adc000.max_rpcs_in_flight=8
+osc.lustrefs-OST0001-osc-ffff0000b3adc000.max_rpcs_in_flight=8
+osc.lustrefs-OST0002-osc-ffff0000b3adc000.max_rpcs_in_flight=8
+osc.lustrefs-OST0000-osc-ffff0000b3adc000.max_pages_per_rpc=1024
+osc.lustrefs-OST0001-osc-ffff0000b3adc000.max_pages_per_rpc=1024
+osc.lustrefs-OST0002-osc-ffff0000b3adc000.max_pages_per_rpc=1024
+osc.lustrefs-OST0000-osc-ffff0000b3adc000.max_dirty_mb=953
+osc.lustrefs-OST0001-osc-ffff0000b3adc000.max_dirty_mb=953
+osc.lustrefs-OST0002-osc-ffff0000b3adc000.max_dirty_mb=953
+
+===== jobid
+jobid_var=disable
+jobid_name=%e.%u
+
+===== oss_cache
+
+===== oss_nrs
+
+===== oss_threads
+
+===== jobstats
+
+===== brw
+
+===== mdt
+
+===== cpt
+cpu_partition_table=0	: 0 1 2 3 4 5
+0
+N
+
+===== lustre_modules_loaded
+lustre mdc lov osc lmv 

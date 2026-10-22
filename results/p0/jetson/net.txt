@@ -1,0 +1,65 @@
+
+===== route_get
+192.168.0.50 dev enP8p1s0 src 192.168.0.100 uid 1000 
+192.168.0.51 dev enP8p1s0 src 192.168.0.100 uid 1000 
+192.168.0.52 dev enP8p1s0 src 192.168.0.100 uid 1000 
+192.168.0.53 dev enP8p1s0 src 192.168.0.100 uid 1000 
+local 192.168.0.100 dev lo src 192.168.0.100 uid 1000 
+192.168.0.60 dev wlP1p1s0 src 192.168.0.110 uid 1000 
+
+===== ethtool
+-- enP8p1s0
+	Speed: 1000Mb/s
+	Duplex: Full
+	Link detected: yes
+mtu 1500
+-- wlP1p1s0
+	Link detected: yes
+mtu 1500
+
+===== lnet_peers
+      -     nid: 192.168.0.50@tcp
+      -     nid: 192.168.0.51@tcp
+      -     nid: 192.168.0.52@tcp
+      -     nid: 192.168.0.53@tcp
+      -     nid: 192.168.0.60@tcp
+      -     nid: 192.168.0.61@tcp
+      -     nid: 192.168.0.62@tcp
+      -     nid: 192.168.0.63@tcp
+-     primary nid: 192.168.0.50@tcp
+-     primary nid: 192.168.0.51@tcp
+-     primary nid: 192.168.0.52@tcp
+-     primary nid: 192.168.0.53@tcp
+-     primary nid: 192.168.0.60@tcp
+-     primary nid: 192.168.0.61@tcp
+-     primary nid: 192.168.0.62@tcp
+-     primary nid: 192.168.0.63@tcp
+
+===== mgc_import
+    target: MGS
+    state: FULL
+       target_version: 2.17.0.0
+    connection:
+       current_connection: "192.168.0.50@tcp"
+       connection_attempts: 1
+
+===== tcp_conn_to_lustre
+State Recv-Q Send-Q Local Address:Port    Peer Address:Port Process
+ESTAB 0      0      192.168.0.100:1021    192.168.0.50:988         
+ESTAB 0      0      192.168.0.100:1022    192.168.0.50:988         
+ESTAB 0      0      192.168.0.100:1023    192.168.0.50:988         
+ESTAB 0      0      192.168.0.100:1022    192.168.0.52:988         
+ESTAB 0      0      192.168.0.100:1021    192.168.0.53:988         
+ESTAB 0      0      192.168.0.100:1021    192.168.0.52:988         
+ESTAB 0      0      192.168.0.100:1022    192.168.0.51:988         
+ESTAB 0      0      192.168.0.100:1023    192.168.0.53:988         
+ESTAB 0      0      192.168.0.100:1022    192.168.0.53:988         
+ESTAB 0      0      192.168.0.100:1023    192.168.0.51:988         
+ESTAB 0      0      192.168.0.100:1023    192.168.0.52:988         
+ESTAB 0      0      192.168.0.100:1021    192.168.0.51:988         
+
+===== iperf3
+/usr/bin/iperf3
+
+===== fio
+/usr/bin/fio

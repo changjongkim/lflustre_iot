@@ -1,0 +1,111 @@
+
+===== client
+
+===== jobid
+jobid_var=disable
+jobid_name=%e.%u
+
+===== oss_cache
+osd-ldiskfs.lustrefs-OST0001.read_cache_enable=0
+osd-ldiskfs.lustrefs-OST0001.writethrough_cache_enable=0
+osd-ldiskfs.lustrefs-OST0001.readcache_max_filesize=18446744073709551615
+
+===== oss_nrs
+ost.OSS.ost_io.nrs_policies=
+
+regular_requests:
+  - name: fifo
+    state: started
+    fallback: yes
+    queued: 0                   
+    active: 0                   
+
+  - name: crrn
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: orr
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: trr
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: tbf
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: delay
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+high_priority_requests:
+  - name: fifo
+    state: started
+    fallback: yes
+    queued: 0                   
+    active: 0                   
+
+  - name: crrn
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: orr
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: trr
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: tbf
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+  - name: delay
+    state: stopped
+    fallback: no
+    queued: 0                   
+    active: 0                   
+
+
+===== oss_threads
+ost.OSS.ost_io.threads_started=3
+ost.OSS.ost_io.threads_max=142
+ost.OSS.ost.threads_started=4
+
+===== jobstats
+obdfilter.lustrefs-OST0001.job_stats=
+obdfilter.lustrefs-OST0001.job_cleanup_interval=600
+
+===== brw
+obdfilter.lustrefs-OST0001.brw_size=4
+
+===== mdt
+
+===== cpt
+cpu_partition_table=0	: 0 1 2 3 4 5
+0
+N
+
+===== lustre_modules_loaded
+lustre mdc lov osc lmv 

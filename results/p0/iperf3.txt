@@ -1,0 +1,6 @@
+jetson -> jetson1 (eth) | forward: 722 Mbits/sec | reverse: 929 Mbits/sec
+jetson -> jetson2 (eth) | forward: 725 Mbits/sec | reverse: 932 Mbits/sec
+jetson -> jetson3 (eth) | forward: 723 Mbits/sec | reverse: 929 Mbits/sec
+jetson0 -> jetson1 (eth) | forward: 927 Mbits/sec | reverse: 930 Mbits/sec
+jetson1 -> jetson2 (eth) | forward: 929 Mbits/sec | reverse: 932 Mbits/sec
+jetson -> jetson1 (wifi, ref) | forward: 154 Mbits/sec | reverse: 146 Mbits/sec

@@ -1,0 +1,43 @@
+
+===== client
+osc.lustrefs-OST0000-osc-MDT0000.max_rpcs_in_flight=8
+osc.lustrefs-OST0001-osc-MDT0000.max_rpcs_in_flight=8
+osc.lustrefs-OST0002-osc-MDT0000.max_rpcs_in_flight=8
+
+===== jobid
+jobid_var=disable
+jobid_name=%e.%u
+
+===== oss_cache
+osd-ldiskfs.MGS.read_cache_enable=0
+osd-ldiskfs.lustrefs-MDT0000.read_cache_enable=0
+osd-ldiskfs.MGS.writethrough_cache_enable=0
+osd-ldiskfs.lustrefs-MDT0000.writethrough_cache_enable=0
+osd-ldiskfs.MGS.readcache_max_filesize=18446744073709551615
+osd-ldiskfs.lustrefs-MDT0000.readcache_max_filesize=18446744073709551615
+
+===== oss_nrs
+
+===== oss_threads
+
+===== jobstats
+
+===== brw
+
+===== mdt
+mdt.lustrefs-MDT0000.md_stats=
+snapshot_time             1792641979.955921992 secs.nsecs
+start_time                1792582050.272048944 secs.nsecs
+elapsed_time              59929.683873048 secs.nsecs
+getattr                   10 samples [usecs] 9 60 251 9511
+getxattr                  7 samples [usecs] 22 44 199 5979
+statfs                    3 samples [usecs] 10 33 55 1333
+mdt.lustrefs-MDT0000.job_stats=
+
+===== cpt
+cpu_partition_table=0	: 0 1 2 3 4 5
+0
+N
+
+===== lustre_modules_loaded
+lustre mdc lov osc lmv 

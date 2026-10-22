@@ -639,17 +639,20 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
   3. 장애 시 대체 노드가 된다.
 - **학습이 N4에만 생기는 이유:** LoRA를 상위 LG(LG9–11)에만 적용하기 때문이다(3.8.3절). 그 LG를 맡은 stage(기본 N4)에서만 backward와 학습 상태가 생긴다.
 
-#### 3.1.2 현재 실제 구성 (2026-10-21 기준, P0에서 확인)
+#### 3.1.2 현재 실제 구성 (2026-10-22 P0 실측, 상세는 `docs/testbed.md`)
 
-| 실제 호스트 | 현재 Lustre 역할 | 대응 설계 노드 | 설계와의 차이 |
-|---|---|---|---|
-| jetson0 | MDS, MDT | N0 | OST0 없음, client 마운트 여부 미확인 |
-| jetson1 | OSS, OST | N1 | client 마운트 여부 미확인 |
-| jetson2 | OSS, OST | N2 | 위와 같음 |
-| jetson3 | OSS, OST | N3 | 위와 같음 |
-| jetson | Client | N4 | OST 없음 |
+| 실제 호스트 | 현재 Lustre 역할 | NVMe 사용 | client 마운트 | 대응 설계 노드 | 설계와의 차이 |
+|---|---|---|---|---|---|
+| jetson0 | MGS + MDT0000 | Samsung 970 EVO Plus 500GB: MGT 8GB + MDT 457.8GB | 없음 | N0 | OST0 없음, NVMe 여유 공간 없음 |
+| jetson1 | OSS, OST0000 | Samsung 980 500GB 전체 | 없음 | N1 | client 마운트 필요 |
+| jetson2 | OSS, OST0001 | Samsung 980 500GB 전체 | 없음 | N2 | client 마운트 필요 |
+| jetson3 | OSS, OST0002 | Samsung 980 500GB 전체 | 없음 | N3 | client 마운트 필요 |
+| jetson | Client | **NVMe 없음** | `/mnt/lustrefs` | N4 | OST를 둘 수 없음 |
 
-현재 구성은 스토리지와 client가 분리된 구성이다. 하이퍼컨버지드 구성으로 전환하는 방안은 P0의 전환 계획서(`docs/hyperconverged_plan.md`, 예정)에서 결정한다. 현재 분리형 구성은 관찰 실험의 비교 기준으로도 쓸 수 있다.
+- 5대 모두 Orin Nano Super(25W), L4T R36.4.4, Lustre 2.17.0(ldiskfs), OS는 microSD, GUI 켜짐, zram 3.8GB이다.
+- 데이터 경로는 유선 1Gb/s이다. jetson 송신만 약 725Mb/s이다.
+- 서버의 MGS 연결이 무선 IP로 설정되어 끊겨 있다(`docs/testbed.md` F1).
+- README의 5-OST 구성은 장치 추가나 MDT 재구축 없이 불가능하다. 비파괴 방안(A')과 비교는 `docs/hyperconverged_plan.md`에 정리했다. 현재 분리형 구성은 관찰 실험의 비교 기준으로도 쓴다.
 
 #### 3.1.3 소프트웨어
 
@@ -682,6 +685,17 @@ ION(HotStorage 2024)과 STELLAR(SC 2025)는 LLM으로 HPC I/O를 진단하거나
 - **상주 가능한 컨텍스트 수:** 8k 컨텍스트 하나가 stage당 288MiB이다. 따라서 N4 약 5개, N1 약 6개, N2·N3 약 9개를 메모리에 둘 수 있다.
 - **stage별 상주 차이:** stage마다 상주 가능한 수가 다르므로, 어떤 질의는 일부 stage에서만 메모리 적중이 일어난다. 이 경우 TTFT는 저장 계층에서 읽어야 하는 stage가 결정한다(3.8.2절 2f).
 - **캐시 상한:** Lustre client 캐시를 기본값(약 3.7GB)으로 두면 KV 상주 공간이 거의 없어진다. 따라서 상한 설정은 필수 조건이다.
+
+**P0 실측 (2026-10-22, jetson·서버 노드)**
+
+| 항목 | 실측 | 위 추정과 비교 |
+|---|---|---|
+| OS + GUI + 서비스 (서버 노드 유휴) | 약 0.8GB 사용, MemAvailable 약 6.5–6.6GB | GUI가 켜진 상태. headless로 전환하면 줄어듦 |
+| 실험과 무관한 프로세스 (jetson) | 약 1.8GB (`node` 4개, `codex`, GNOME, docker) | 실험 전 정리 필요 |
+| CUDA 컨텍스트 (PyTorch 제외) | 약 74MiB | PyTorch 오버헤드는 미측정 (미설치) |
+| Lustre 서버 memused | 약 120MiB | 추정(0.3GB) 이내 |
+| client 캐시 상한 기본값 | 3,810MB (RAM의 1/2) | 가정과 일치. 2GiB buffered 읽기에서 MemFree가 2.16GB 감소 |
+| client 캐시 상한 512MB 적용 시 | 캐시 증가가 약 0.38–0.49GB에서 멈춤 | 상한 설정이 실제로 작동함 |
 
 ### 3.2 대상 시나리오와 워크로드
 
@@ -1563,6 +1577,8 @@ class KVStore:
 | 네트워크 | 유선·무선 인터페이스, 경로, LNet NID, iperf3 |
 | Lustre | 버전, 백엔드, MGS/MDS 위치, OST ↔ 호스트, 노드별 client 마운트, `max_cached_mb` 기본값 |
 
+P0 기록 결과는 `docs/testbed.md`에 있다(2026-10-22).
+
 #### 4.1.2 사전 점검 항목
 
 | ID | 점검 | 통과 기준 |
@@ -1903,15 +1919,19 @@ P0와 O1–O7 결과로 투고 대상을 판단한다.
 
 ## 8. 미결 사항
 
-- [ ] 노드별 Super 여부, JetPack, 전력 모드
-- [ ] 노드별 NVMe 장착 여부, 모델, 용량, raw 대역폭
-- [ ] OS 설치 위치
-- [ ] zram 설정
-- [ ] 유선·무선 경로와 LNet NID 인터페이스 (같은 대역 사용 문제)
-- [ ] 유선 NIC 실측 대역폭
-- [ ] Lustre 버전, 백엔드, 기능 지원, `max_cached_mb` 기본값
-- [ ] 하이퍼컨버지드 전환 방안 결정 (P0 계획서)
-- [ ] PyTorch 메모리 사용량 실측
+- [x] 노드별 Super 여부, JetPack, 전력 모드 (5대 모두 Super, L4T R36.4.4, 25W)
+- [x] 노드별 NVMe 장착 여부, 모델, 용량 (jetson0–3 장착, jetson 없음). raw 대역폭은 Lustre 외 파일 시스템이 없어 미측정
+- [x] OS 설치 위치 (5대 모두 microSD)
+- [x] zram 설정 (6 × 635MB = 3.8GB) — 실험 중 유지·비활성화 여부는 미결
+- [x] 유선·무선 경로와 LNet NID 인터페이스 (데이터 경로는 유선, 서버 MGS 연결은 무선 IP로 설정되어 끊김)
+- [x] 유선 NIC 실측 대역폭 (약 930Mb/s, jetson 송신만 약 725Mb/s)
+- [x] Lustre 버전, 백엔드, 기능 지원, `max_cached_mb` 기본값 (2.17.0, ldiskfs, C1 통과, 3,810MB)
+- [ ] 하이퍼컨버지드 전환 방안 결정 (계획서 `docs/hyperconverged_plan.md`, 추천 A')
+- [ ] 서버 MGS 주소 정정 (F1)
+- [ ] GUI 비활성화, 실험 노드의 다른 프로세스 정리 (F4)
+- [ ] 노드 간 시간 동기화 개선 (F5)
+- [ ] jetson 송신 대역폭 저하 원인 확인 (F3)
+- [ ] PyTorch 설치 방식 결정과 메모리 사용량 실측
 - [ ] Jetson 사양 수치 공식 확인
 - [x] 논문 제목과 시스템 이름: CoStripe (가제, 투고 전 최종 확인)
 - [ ] 제목에 KV 저장 구조(content-addressed)를 반영할지 여부

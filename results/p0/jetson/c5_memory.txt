@@ -1,0 +1,20 @@
+== 0 baseline (after drop_caches)
+MemFree:=5023MiB MemAvailable:=5443MiB Cached:=514MiB 
+== other big processes (RSS MiB)
+  RSS COMMAND
+652 node
+451 codex
+190 node
+142 node
+128 gnome-shell
+84 node
+78 dockerd
+== 1 CUDA context overhead
+MemAvailable before=5449MiB during=5311MiB delta=138MiB (incl. 64MiB buffer), process RSS=19MiB
+== 2 Lustre client cache growth (buffered 2GiB read)
+original max_cached_mb=3810
+cap=3810MiB | before: MemFree:=5019MiB MemAvailable:=5438MiB Cached:=514MiB | after: MemFree:=2857MiB MemAvailable:=5333MiB Cached:=2562MiB | llite used_mb=2048
+cap=512MiB | before: MemFree:=5031MiB MemAvailable:=5450MiB Cached:=514MiB | after: MemFree:=4511MiB MemAvailable:=5419MiB Cached:=1002MiB | llite used_mb=378
+restored max_cached_mb=3810
+== j0 lustre memused: 122MiB 123MiB 
+== j1 lustre memused: 119MiB 119MiB 

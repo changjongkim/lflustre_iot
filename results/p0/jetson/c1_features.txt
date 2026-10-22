@@ -1,0 +1,38 @@
+
+===== 1 per-OST placement
+f_ost0 -> obdidx 0
+f_ost1 -> obdidx 1
+f_ost2 -> obdidx 2
+RESULT per_ost: PASS
+
+===== 2 directory default layout inheritance
+child stripe index: 2
+RESULT dir_inherit: PASS
+
+===== 3 PFL composite layout
+    lcme_extent.e_start: 0
+    lcme_extent.e_end:   67108864
+      -   0: { l_ost_idx:   0, l_fid: [0x240000400:0x712771:0x0] }
+    lcme_extent.e_start: 67108864
+    lcme_extent.e_end:   EOF
+      -   0: { l_ost_idx:   1, l_fid: [0x280000400:0x6f9412:0x0] }
+RESULT pfl: PASS
+
+===== 4 FLR mirror create / extend / resync / verify
+CRC-32 checksum value for chunk [0, 0x800000):
+Mirror 1:	0x1ad2bc45
+Mirror 2:	0x1ad2bc45
+
+RESULT flr_create: PASS
+RESULT flr_extend: PASS
+  lcm_mirror_count:  3
+      -   0: { l_ost_idx:   0, l_fid: [0x240000400:0x712772:0x0] }
+      -   0: { l_ost_idx:   1, l_fid: [0x280000400:0x6f9413:0x0] }
+      -   0: { l_ost_idx:   2, l_fid: [0x2c0000400:0x6f9255:0x0] }
+
+===== 5 migrate keeps path
+f_ost0 now obdidx 2
+RESULT migrate: PASS
+
+===== cleanup
+removed /mnt/lustrefs/llmio_test/c1

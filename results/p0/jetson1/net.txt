@@ -1,0 +1,49 @@
+
+===== route_get
+192.168.0.50 dev enP8p1s0 src 192.168.0.51 uid 1000 
+local 192.168.0.51 dev lo src 192.168.0.51 uid 1000 
+192.168.0.52 dev enP8p1s0 src 192.168.0.51 uid 1000 
+192.168.0.53 dev enP8p1s0 src 192.168.0.51 uid 1000 
+192.168.0.100 dev enP8p1s0 src 192.168.0.51 uid 1000 
+192.168.0.60 dev wlP1p1s0 src 192.168.0.61 uid 1000 
+
+===== ethtool
+-- enP8p1s0
+	Speed: 1000Mb/s
+	Duplex: Full
+	Link detected: yes
+mtu 1500
+-- wlP1p1s0
+	Link detected: yes
+mtu 1500
+
+===== lnet_peers
+      -     nid: 192.168.0.100@tcp
+      -     nid: 192.168.0.50@tcp
+      -     nid: 192.168.0.60@tcp
+-     primary nid: 192.168.0.100@tcp
+-     primary nid: 192.168.0.50@tcp
+-     primary nid: 192.168.0.60@tcp
+
+===== mgc_import
+    target: MGS
+    state: CONNECTING
+       target_version: 2.17.0.0
+    connection:
+       current_connection: "192.168.0.60@tcp"
+       connection_attempts: 1664
+
+===== tcp_conn_to_lustre
+State Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+ESTAB 0      0       192.168.0.51:988  192.168.0.100:1021        
+ESTAB 0      0       192.168.0.51:1023  192.168.0.50:988         
+ESTAB 0      0       192.168.0.51:988  192.168.0.100:1023        
+ESTAB 0      0       192.168.0.51:988  192.168.0.100:1022        
+ESTAB 0      0       192.168.0.51:1022  192.168.0.50:988         
+ESTAB 0      0       192.168.0.51:1021  192.168.0.50:988         
+
+===== iperf3
+/usr/bin/iperf3
+
+===== fio
+/usr/bin/fio

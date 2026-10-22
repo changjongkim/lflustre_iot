@@ -1,0 +1,181 @@
+
+===== hostname
+jetson3-desktop
+Linux jetson3-desktop 5.15.148-tegra-kprobes #1 SMP PREEMPT Tue Sep 15 17:19:51 KST 2026 aarch64 aarch64 aarch64 GNU/Linux
+ 13:01:13 up 28 min,  0 users,  load average: 0.10, 0.05, 0.06
+
+===== model
+NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super
+
+===== l4t
+# R36 (release), REVISION: 4.4, GCID: 41062509, BOARD: generic, EABI: aarch64, DATE: Mon Jun 16 16:07:13 UTC 2025
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia
+
+===== nvpmodel
+NV Power Mode: 25W
+1
+
+===== default_target
+graphical.target
+
+===== memory
+               total        used        free      shared  buff/cache   available
+Mem:            7608         806        5415          28        1386        6551
+Swap:           3804           0        3804
+NAME       TYPE      SIZE USED PRIO
+/dev/zram0 partition 634M   0B    5
+/dev/zram1 partition 634M   0B    5
+/dev/zram2 partition 634M   0B    5
+/dev/zram3 partition 634M   0B    5
+/dev/zram4 partition 634M   0B    5
+/dev/zram5 partition 634M   0B    5
+NAME       ALGORITHM DISKSIZE DATA COMPR TOTAL STREAMS MOUNTPOINT
+/dev/zram5 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+/dev/zram4 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+/dev/zram3 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+/dev/zram2 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+/dev/zram1 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+/dev/zram0 lzo-rle     634.1M   4K   74B   12K       6 [SWAP]
+
+===== meminfo
+MemTotal:        7791192 kB
+MemAvailable:    6708876 kB
+Cached:          1285752 kB
+SwapTotal:       3895584 kB
+
+===== disks
+NAME           SIZE MODEL                 MOUNTPOINT       FSTYPE
+loop0           16M                                        
+mmcblk0      477.5G                                        
+├─mmcblk0p1    476G                       /                ext4
+├─mmcblk0p2    128M                                        
+├─mmcblk0p3    768K                                        
+├─mmcblk0p4   31.6M                                        
+├─mmcblk0p5    128M                                        
+├─mmcblk0p6    768K                                        
+├─mmcblk0p7   31.6M                                        
+├─mmcblk0p8     80M                                        
+├─mmcblk0p9    512K                                        
+├─mmcblk0p10    64M                       /boot/efi        vfat
+├─mmcblk0p11    80M                                        
+├─mmcblk0p12   512K                                        
+├─mmcblk0p13    64M                                        
+├─mmcblk0p14   400M                                        
+└─mmcblk0p15 479.5M                                        
+zram0        634.1M                       [SWAP]           
+zram1        634.1M                       [SWAP]           
+zram2        634.1M                       [SWAP]           
+zram3        634.1M                       [SWAP]           
+zram4        634.1M                       [SWAP]           
+zram5        634.1M                       [SWAP]           
+nvme0n1      465.8G Samsung SSD 980 500GB /mnt/lustre/ost2 ext4
+
+===== df
+Filesystem      Type    Size  Used Avail Use% Mounted on
+/dev/mmcblk0p1  ext4    469G   30G  420G   7% /
+/dev/mmcblk0p10 vfat     63M  110K   63M   1% /boot/efi
+/dev/nvme0n1    lustre  458G   20G  415G   5% /mnt/lustre/ost2
+
+===== nvme
+Node                  SN                   Model                                    Namespace Usage                      Format           FW Rev  
+--------------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1          S78GNL0YB35163Z      Samsung SSD 980 500GB                    1          79.56  GB / 500.11  GB    512   B +  0 B   4B4QFXO7
+
+===== cpu
+6
+CPU(s):                             6
+Model name:                         Cortex-A78AE
+CPU max MHz:                        1728.0000
+
+===== tegrastats
+10-22-2026 13:01:14 RAM 886/7609MB (lfb 7x4MB) SWAP 0/3804MB (cached 0MB) CPU [24%@1344,2%@1344,0%@1344,5%@1344,17%@729,1%@729] EMC_FREQ 0%@2133 GR3D_FREQ 0%@[305] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@50.218C soc2@51.125C soc0@51.093C gpu@51.781C tj@51.781C soc1@51.281C VDD_IN 4928mW/4928mW VDD_CPU_GPU_CV 669mW/669mW VDD_SOC 1416mW/1416mW
+10-22-2026 13:01:15 RAM 886/7609MB (lfb 7x4MB) SWAP 0/3804MB (cached 0MB) CPU [0%@1344,0%@1344,0%@1344,0%@1344,0%@729,0%@729] EMC_FREQ 0%@2133 GR3D_FREQ 0%@[305] NVDEC off NVJPG off NVJPG1 off VIC off OFA off APE 200 cpu@50.343C soc2@51.062C soc0@51.125C gpu@51.718C tj@51.718C soc1@51.218C VDD_IN 4738mW/4833mW VDD_CPU_GPU_CV 551mW/610mW VDD_SOC 1379mW/1398mW
+
+===== python
+Python 3.10.12
+ModuleNotFoundError: No module named 'torch'
+
+===== cuda
+/usr/local/cuda
+/usr/local/cuda-12
+/usr/local/cuda-12.6
+Build cuda_12.6.r12.6/compiler.34714021_0
+
+===== lustre_mounts
+/dev/nvme0n1 on /mnt/lustre/ost2 type lustre (rw,svname=lustrefs-OST0002,mgsnode=192.168.0.60@tcp,192.168.0.50@tcp,osd=osd-ldiskfs)
+
+===== lustre_modules
+osd_ldiskfs           565248  8
+ldiskfs               946176  2 osd_ldiskfs
+lustre               1044480  1
+ptlrpc               2543616  28 fld,osc,fid,osp,ofd,mgc,lov,mdc,lmv,osd_ldiskfs,lustre,lquota,lfsck
+obdclass             1376256  30 fld,osc,fid,osp,ofd,ptlrpc,mgc,lov,mdc,lmv,osd_ldiskfs,lustre,lquota,lfsck
+ksocklnd              176128  1
+lnet                  921600  10 osc,obdclass,osp,ofd,ptlrpc,mgc,ksocklnd,lmv,lustre
+filename:       /lib/modules/5.15.148-tegra-kprobes/fs/lustre/lustre.ko
+version:        2.17.0
+
+===== lustre_version
+2.17.0
+
+===== lctl_dl
+  0 UP osd-ldiskfs lustrefs-OST0002-osd lustrefs-OST0002-osd_UUID 5
+  1 UP mgc MGC192.168.0.60@tcp 9e7ba08f-c010-46c6-88d4-9ebad4ede0e3 5
+  2 UP ost OSS OSS_uuid 3
+  3 UP obdfilter lustrefs-OST0002 lustrefs-OST0002_UUID 5
+  4 UP lwp lustrefs-MDT0000-lwp-OST0002 lustrefs-MDT0000-lwp-OST0002_UUID 5
+
+===== nids
+192.168.0.53@tcp
+
+===== lnet
+net:
+-     net type: lo
+      local NI(s):
+      -     nid: 0@lo
+            status: up
+-     net type: tcp
+      local NI(s):
+      -     nid: 192.168.0.53@tcp
+            status: up
+            interfaces:
+                  0: enP8p1s0
+
+===== net_addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+can0             DOWN           
+wlP1p1s0         UP             192.168.0.63/24 fe80::2a68:f776:e04b:931b/64 
+enP8p1s0         UP             192.168.0.53/24 fe80::a15:80ad:3a6c:29e9/64 
+l4tbr0           DOWN           
+usb0             DOWN           
+usb1             DOWN           
+docker0          DOWN           172.17.0.1/16 
+
+===== net_route
+default via 192.168.0.1 dev enP8p1s0 
+default via 192.168.0.1 dev enP8p1s0 proto dhcp metric 100 
+default via 192.168.0.1 dev wlP1p1s0 proto dhcp metric 600 
+169.254.0.0/16 dev enP8p1s0 scope link metric 1000 
+172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown 
+192.168.0.0/24 dev enP8p1s0 proto kernel scope link src 192.168.0.53 
+192.168.0.0/24 dev enP8p1s0 proto kernel scope link src 192.168.0.53 metric 100 
+192.168.0.0/24 dev wlP1p1s0 proto kernel scope link src 192.168.0.63 metric 600 
+192.168.0.50 dev enP8p1s0 scope link src 192.168.0.53 
+192.168.0.51 dev enP8p1s0 scope link src 192.168.0.53 
+192.168.0.52 dev enP8p1s0 scope link src 192.168.0.53 
+192.168.0.60 dev wlP1p1s0 scope link src 192.168.0.63 
+192.168.0.61 dev wlP1p1s0 scope link src 192.168.0.63 
+192.168.0.62 dev wlP1p1s0 scope link src 192.168.0.63 
+192.168.0.100 dev enP8p1s0 scope link src 192.168.0.53 
+192.168.0.110 dev wlP1p1s0 scope link src 192.168.0.63 
+
+===== time
+               Local time: 목 2026-10-22 13:01:17 KST
+           Universal time: 목 2026-10-22 04:01:17 UTC
+                 RTC time: 목 2026-10-22 04:01:17
+                Time zone: Asia/Seoul (KST, +0900)
+System clock synchronized: yes
+              NTP service: active
+          RTC in local TZ: no
