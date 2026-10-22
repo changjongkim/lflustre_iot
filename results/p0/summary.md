@@ -14,7 +14,7 @@
 | ② prefill 대 KV 복원 | 로컬 복원이 prefill보다 7–12배 빠름. 원격 복원은 prefill과 비슷하거나 더 느림 | go |
 | ③ Lustre 캐시와 GPU 할당 | 실패는 없음. 할당 시간 +25%, 최악 할당 지연 2배. 캐시 상한으로 해소 | 보조 근거 |
 
-논문의 무게중심은 "데이터와 KV를 어디에 두느냐"(위치)와 공유 자원(OSS, NIC, 8GB 노드 메모리)에 둔다. 이후 재측정에서 같은 노드 저장 I/O의 LLM 연산 감속은 모든 조건에서 3% 이내여서, 연산 간섭은 주장에서 빼고 대조 측정으로만 보고한다(README 3.14절). 다른 노드의 I/O를 처리하는 OSS는 CPU의 13–19%를 쓰지만(재측정, P0의 약 2%는 fio 레이아웃 문제로 인한 측정 오류), 같은 노드의 GPU 중심 LLM은 1% 안팎만 느려진다(README 3.6, 3.9절). 자기 노드의 로컬 I/O는 CPU의 약 45%를 쓴다.
+논문의 무게중심은 "데이터와 KV를 어디에 두느냐"(위치)와 공유 자원(OSS, NIC, 8GB 노드 메모리)에 둔다. 이후 재측정에서 같은 노드 저장 I/O의 LLM 연산 감속은 모든 조건에서 3% 이내여서, 연산 간섭은 주장에서 빼고 대조 측정으로만 보고한다(README 3.14절). 다른 노드의 I/O를 처리하는 OSS는 CPU의 13–19%를 쓰지만(재측정, P0의 약 2%는 fio 레이아웃 문제로 인한 측정 오류), 같은 노드의 GPU 중심 LLM은 1% 안팎만 느려진다(README 3.13절). 자기 노드의 로컬 I/O는 CPU의 약 45%를 쓴다.
 
 ## 2. 판단 실험 상세
 
@@ -73,7 +73,7 @@
 | F4 | GUI 켜짐, jetson에 다른 프로세스 약 1.8GB | 실험 기간 GUI 끄기, 프로세스 정리 |
 | F5 | 시간 오차 12–30ms | 로컬 시간 서버 구성 |
 | F6 | SSH 조회가 CPU 측정을 오염 | 노드 내부 샘플러 사용 (적용함, `experiments/motivation/sampler.py`) |
-| F7 | jetson1이 LLM 실행 중 두 번 멈춤. 원인은 llama-server의 호스트 RAM prompt cache(기본 8GiB)와 같은 노드 Lustre I/O의 메모리 소진 (`docs/testbed.md`, README 3.9절) | `--cache-ram 0`과 메모리 보호를 켜고 M8, M10, M14 재측정 |
+| F7 | jetson1이 LLM 실행 중 두 번 멈춤. 원인은 llama-server의 호스트 RAM prompt cache(기본 8GiB)와 같은 노드 Lustre I/O의 메모리 소진 (`docs/testbed.md`, README 3.5절) | `--cache-ram 0`과 메모리 보호를 켜고 M8, M10, M14 재측정 |
 | – | PyTorch 미설치 | 설치 방식(NVIDIA wheel / jetson-containers) |
 | – | 플래너 메모리 4.1GB | 플래너 모델 크기(4B/1.7B)와 배치 노드 |
 

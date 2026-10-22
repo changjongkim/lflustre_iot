@@ -33,18 +33,18 @@ IFLustre(MASCOTS 2022) 확장 연구의 설계 문서이다. 하이퍼컨버지�
   - [2.8 관련 연구와 연구 공백](#28-관련-연구와-연구-공백)
 - [3. Motivation: 테스트베드 실측](#3-motivation-테스트베드-실측)
   - [3.1 테스트베드와 측정 방법](#31-테스트베드와-측정-방법)
-  - [3.2 관찰 M1·M2: 원격 접근은 1GbE가 상한이고, 같은 노드 OST는 15–22배 빠르다](#32-관찰-m1m2-원격-접근은-1gbe가-상한이고-같은-노드-ost는-1522배-빠르다)
-  - [3.3 관찰 M3: 로컬 KV 복원은 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다](#33-관찰-m3-로컬-kv-복원은-재계산보다-712배-빠르고-원격-kv는-재계산보다-느릴-수-있다)
-  - [3.4 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다](#34-관찰-m4-lustre-client-캐시가-8gb-메모리를-잠식하고-gpu-할당을-늦춘다)
-  - [3.5 관찰 M5·M8: 저장 I/O는 같은 노드의 LLM 연산을 3% 이내로만 늦춘다](#35-관찰-m5m8-저장-io는-같은-노드의-llm-연산을-3-이내로만-늦춘다)
-  - [3.6 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다](#36-관찰-m6-엣지-llm-플래너는-형식은-지키지만-내용-검증이-필요하다)
+  - [3.2 관찰 M14: KV를 사용 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배 짧다](#32-관찰-m14-kv를-사용-노드에-두면-ttft가-lustre-기본-할당보다-819배-짧다)
+  - [3.3 관찰 M1·M2: 원격 접근은 1GbE가 상한이고, 같은 노드 OST는 15–22배 빠르다](#33-관찰-m1m2-원격-접근은-1gbe가-상한이고-같은-노드-ost는-1522배-빠르다)
+  - [3.4 관찰 M3: 로컬 KV 복원은 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다](#34-관찰-m3-로컬-kv-복원은-재계산보다-712배-빠르고-원격-kv는-재계산보다-느릴-수-있다)
+  - [3.5 관찰 M10: LLM 런타임의 KV 캐시와 저장 계층이 서로 모른 채 8GB를 나눠 쓰면 노드가 멈춘다](#35-관찰-m10-llm-런타임의-kv-캐시와-저장-계층이-서로-모른-채-8gb를-나눠-쓰면-노드가-멈춘다)
+  - [3.6 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다](#36-관찰-m9-stage-노드의-저장-io가-stage-사이-activation-전달을-24배-늦춘다)
   - [3.7 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 합계가 그 OSS의 1GbE로 제한된다](#37-관찰-m7-여러-흐름이-oss-하나를-공유하면-합계가-그-oss의-1gbe로-제한된다)
-  - [3.8 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다](#38-관찰-m9-stage-노드의-저장-io가-stage-사이-activation-전달을-24배-늦춘다)
-  - [3.9 관찰 M10: LLM 런타임의 KV 캐시와 저장 계층이 서로 모른 채 8GB를 나눠 쓰면 노드가 멈춘다](#39-관찰-m10-llm-런타임의-kv-캐시와-저장-계층이-서로-모른-채-8gb를-나눠-쓰면-노드가-멈춘다)
+  - [3.8 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS가 병목이고, pack에 붙이면 30배 빠르다](#38-관찰-m13-iot-레코드를-파일-단위로-쓰면-mds가-병목이고-pack에-붙이면-30배-빠르다)
+  - [3.9 관찰 M12: 원격 KV는 사용 노드로 옮기면 이동 비용을 포함해도 세 번째 사용부터 이득이다](#39-관찰-m12-원격-kv는-사용-노드로-옮기면-이동-비용을-포함해도-세-번째-사용부터-이득이다)
   - [3.10 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다](#310-관찰-m11-체크포인트-쓰기를-kv-복원과-겹치면-복원이-41-느려지고-시점을-미루면-2로-줄어든다)
-  - [3.11 관찰 M12: 원격 KV는 사용 노드로 옮기면 이동 비용을 포함해도 세 번째 사용부터 이득이다](#311-관찰-m12-원격-kv는-사용-노드로-옮기면-이동-비용을-포함해도-세-번째-사용부터-이득이다)
-  - [3.12 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS가 병목이고, pack에 붙이면 30배 빠르다](#312-관찰-m13-iot-레코드를-파일-단위로-쓰면-mds가-병목이고-pack에-붙이면-30배-빠르다)
-  - [3.13 관찰 M14: KV를 사용 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배 짧다](#313-관찰-m14-kv를-사용-노드에-두면-ttft가-lustre-기본-할당보다-819배-짧다)
+  - [3.11 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다](#311-관찰-m4-lustre-client-캐시가-8gb-메모리를-잠식하고-gpu-할당을-늦춘다)
+  - [3.12 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다](#312-관찰-m6-엣지-llm-플래너는-형식은-지키지만-내용-검증이-필요하다)
+  - [3.13 관찰 M5·M8: 저장 I/O는 같은 노드의 LLM 연산을 3% 이내로만 늦춘다](#313-관찰-m5m8-저장-io는-같은-노드의-llm-연산을-3-이내로만-늦춘다)
   - [3.14 관찰 요약: 성능을 크게 바꾸는 것과 거의 바꾸지 않는 것](#314-관찰-요약-성능을-크게-바꾸는-것과-거의-바꾸지-않는-것)
   - [3.15 IFLustre 이점의 계승](#315-iflustre-이점의-계승)
   - [3.16 관찰에서 설계로](#316-관찰에서-설계로)
@@ -385,7 +385,22 @@ LLM KV에 적용하려면 세 가지가 다르다. 주소는 chunk 내용이 아
 
 ## 3. Motivation: 테스트베드 실측
 
-2026-10-22에 실제 클러스터에서 측정했다. 4장 설계의 근거이며, 5.4절 관찰 실험(O1–O7)의 예비 결과이다. 관찰마다 그림, 핵심 수치, 시사점만 둔다. 측정 구성, 전체 표, 분석은 `docs/motivation_details.md`에 있고, 원시 결과는 `results/p0/`, `results/motivation/`에 있다.
+2026-10-22에 실제 클러스터에서 측정했다. 4장 설계의 근거이며, 5.4절 관찰 실험(O1–O7)의 예비 결과이다. 관찰마다 그림, 핵심 수치, 시사점만 둔다. 관찰은 LLM 응답 시간과 노드 가용성에 미치는 영향이 큰 순서(강함 → 약함)로 둔다. 관찰 번호(M1–M14)는 측정 순서이다.
+
+| 절 | 관찰 | 효과 크기 | 강도 |
+|---|---|---|---|
+| 3.2 | M14 KV 배치 정책과 TTFT | TTFT p50 8–20배 | 강함 |
+| 3.3 | M1·M2 같은 노드 대 원격 OST | 처리량 15–22배 | 강함 |
+| 3.4 | M3 KV 복원 대 재계산 | 7–12배 | 강함 |
+| 3.5 | M10 런타임 KV 캐시와 저장 계층의 메모리 | 노드 정지 2회 | 강함 |
+| 3.6 | M9 저장 I/O와 activation의 NIC 공유 | 2–4배 | 중간 |
+| 3.7 | M7 OSS 공유 | 2–2.5배 | 중간 |
+| 3.8 | M13 수집 저장 단위 (pack) | 30배 (수집 경로) | 중간 |
+| 3.9 | M12 원격 KV 재배치 | 5회 사용 1.8배 | 중간 |
+| 3.10 | M11 백그라운드 쓰기 시점 | +41% 대 +2% | 중간 |
+| 3.11 | M4 client 캐시와 GPU 할당 | 할당 시간 +25% | 약함 |
+| 3.12 | M6 LLM 플래너 | 실행 가능성만 확인 | 약함 |
+| 3.13 | M5·M8 저장 I/O의 LLM 연산 감속 | 3% 이내 | 약함 (대조) | 측정 구성, 전체 표, 분석은 `docs/motivation_details.md`에 있고, 원시 결과는 `results/p0/`, `results/motivation/`에 있다.
 
 ### 3.1 테스트베드와 측정 방법
 
@@ -398,7 +413,24 @@ LLM KV에 적용하려면 세 가지가 다르다. 주소는 chunk 내용이 아
 | 노드 기록 | 노드 내부 샘플러(1초 간격: CPU, NIC, 메모리, 회수·스왑, GPU, 전력) |
 | 그림 색 | 로컬 = 파랑, 원격 = 주황, 재계산 = 청록 |
 
-### 3.2 관찰 M1·M2: 원격 접근은 1GbE가 상한이고, 같은 노드 OST는 15–22배 빠르다
+### 3.2 관찰 M14: KV를 사용 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배 짧다
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m14-ttft-cdf-dark.svg">
+  <img alt="KV 배치 정책별 TTFT 누적 분포: 사용 노드 배치는 모든 요청이 1.4초 안, Lustre 기본 할당은 중앙값 6.2초·최대 29초, 사용 노드를 보지 않는 부하 분산은 중앙값 16초·최대 42초" src="docs/figures/m14-ttft-cdf-light.svg" width="620">
+</picture>
+
+stage 노드 3대(jetson1–3)가 각자 llama-server를 실행하고, 스트림 컨텍스트 12개(각 4k 토큰, KV 576MiB)에 대한 Zipf 분포 요청(초당 0.3개, 4분)을 처리한다. 정책은 KV 파일을 어느 OST에 두느냐만 다르다.
+
+| KV 배치 정책 | 로컬 복원 요청 | TTFT p50 | TTFT p90 | TTFT p99 |
+|---|---|---|---|---|
+| Lustre 기본 할당기 | 35 / 79 | 6.2초 | 19.1초 | 25.9초 |
+| OSS 부하 기반 분산 (사용 노드 무시, IFLustre식) | 9 / 79 | 16.0초 | 27.2초 | 38.2초 |
+| 사용 노드 OST | 79 / 79 | 0.79초 | 1.01초 | 1.36초 |
+
+**시사점:** 원격 KV 복원(576MiB에 5–6초) 동안 같은 노드의 다음 요청이 기다려 꼬리 지연이 커진다. 사용 노드를 보지 않는 부하 분산은 Lustre 기본 할당보다 나쁠 수 있다. 부하 분산의 결과는 배치에 크게 좌우되므로 논문에서는 seed를 바꿔 반복한다.
+
+### 3.3 관찰 M1·M2: 원격 접근은 1GbE가 상한이고, 같은 노드 OST는 15–22배 빠르다
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m1a-network-dark.svg">
@@ -430,7 +462,7 @@ LLM KV에 적용하려면 세 가지가 다르다. 주소는 chunk 내용이 아
 
 **시사점:** 원격 경로는 client NIC가 상한이라 striping으로 대역폭을 넓힐 수 없다. 성능을 바꾸는 수단은 데이터를 어느 노드에 두느냐이다.
 
-### 3.3 관찰 M3: 로컬 KV 복원은 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다
+### 3.4 관찰 M3: 로컬 KV 복원은 재계산보다 7–12배 빠르고, 원격 KV는 재계산보다 느릴 수 있다
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m3-prefill-vs-kv-dark.svg">
@@ -448,73 +480,25 @@ LLM KV에 적용하려면 세 가지가 다르다. 주소는 chunk 내용이 아
 
 **시사점:** KV를 수집 시점에 미리 만들어 사용 노드에 두면 이득이 크다. 원격 KV는 재계산과 비교해 고른다.
 
-### 3.4 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다
+### 3.5 관찰 M10: LLM 런타임의 KV 캐시와 저장 계층이 서로 모른 채 8GB를 나눠 쓰면 노드가 멈춘다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m4a-cache-memfree-dark.svg">
-  <img alt="2GiB buffered 읽기 한 번 후 줄어든 여유 메모리: 기본 캐시 상한 2,162MiB, 캐시 상한 512MB 520MiB" src="docs/figures/m4a-cache-memfree-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10-jetson1-hang-dark.svg">
+  <img alt="jetson1 메모리 추이: MemAvailable이 LLM 서버 로드와 요청마다 줄어 906MB가 된 뒤, 같은 노드의 Lustre direct 읽기가 시작되자 41MB까지 떨어지고 zram 스왑이 3.4GB까지 차면서 노드가 멈춤" src="docs/figures/m10-jetson1-hang-light.svg" width="620">
 </picture>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m4b-cache-gpu-dark.svg">
-  <img alt="Lustre 캐시 상태별 GPU 메모리 할당 시간: 4GiB 1,461/1,807/1,460ms, 5GiB 1,832/2,298/1,824ms (캐시 비움/가득/상한 512MB)" src="docs/figures/m4b-cache-gpu-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10c-reclaim-dark.svg">
+  <img alt="같은 노드 Lustre 읽기 중 메모리 회수: direct 읽기는 회수 없음, buffered 캐시 상한 512MB는 direct reclaim 67k, 기본 상한은 340k 페이지 스캔. decode 감속은 1.7–3.0%" src="docs/figures/m10c-reclaim-light.svg" width="620">
 </picture>
 
-- client 캐시 기본 상한은 3,810MB(RAM의 1/2)이다. 2GiB buffered 읽기 1회 후 MemFree가 2,162MiB 줄고(상한 512MB이면 520MiB), `MemAvailable`은 105MiB만 줄어든다.
-- 캐시가 찬 상태에서 GPU 4GiB / 5GiB 할당 시간이 24% / 25% 늘고, 가장 느린 256MiB 할당 지연이 2배가 된다. 상한 512MB이면 캐시가 빈 상태와 같다.
+- jetson1이 측정 중 두 번 멈췄다. 감시 샘플러 기록에서 MemAvailable이 41MB까지 떨어지고 zram 스왑이 3.4GB까지 찬 뒤 멈췄다.
+- 주된 원인은 llama.cpp 서버의 호스트 RAM prompt cache(`--cache-ram`, 기본 8,192MiB)이다. 서버는 프롬프트가 바뀔 때마다 이전 KV를 RAM에 쌓는다. 서로 다른 요청 4개(각 2,705토큰)에서 MemAvailable이 2,668 → 1,581MB로 줄었고, `--cache-ram 0`이면 2,738 → 2,726MB로 유지되었다. 같은 노드의 Lustre I/O가 남은 메모리를 마저 썼다.
+- `--cache-ram 0`이면 ctx 8192 서버와 같은 노드 Lustre 읽기를 함께 돌려도 MemAvailable이 약 2GB로 유지된다. client 캐시 상한이 기본값이면 512MB일 때보다 페이지 회수가 약 5배 많다(direct reclaim 340k 대 67k 페이지 스캔).
 
-**시사점:** 8GB unified memory에서 캐시 상한은 필수이다. 메모리 압박은 MemFree와 회수 카운터로 측정한다.
+**시사점:** 런타임 캐시, client 캐시, OSS 메모리는 각자 자기 상한만 지킨다. KV 계층(GPU, 호스트 RAM, 로컬 OST, 원격 OST)과 저장 계층 메모리를 하나의 노드 메모리 예산으로 관리해야 한다. 이후 측정은 모두 `--cache-ram 0`으로 한다.
 
-### 3.5 관찰 M5·M8: 저장 I/O는 같은 노드의 LLM 연산을 3% 이내로만 늦춘다
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m5-oss-cpu-dark.svg">
-  <img alt="원격 I/O를 처리하는 OSS 노드의 CPU: 유휴 0.8%, 원격 읽기 처리 13.0%, 원격 쓰기 처리 19.0%, softirq는 약 6%" src="docs/figures/m5-oss-cpu-light.svg" width="620">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m8-llm-under-io-dark.svg">
-  <img alt="저장 I/O 중 LLM 속도(저장 I/O 없을 때 대비): 원격 읽기·쓰기 100%, 로컬 direct 읽기 99%, 로컬 direct 쓰기 99–100%, 로컬 buffered 읽기 prefill 99% decode 97%, 로컬 buffered 쓰기 100%" src="docs/figures/m8-llm-under-io-light.svg" width="620">
-</picture>
-
-| 측정 | 결과 |
-|---|---|
-| 원격 client의 I/O를 처리하는 OSS의 CPU (jetson3, M5) | 읽기 처리(114MB/s) 13.0%, 쓰기 처리(93MB/s) 19.0%. 그중 softirq 약 6% |
-| 같은 노드 저장 I/O 중 LLM 속도 (jetson1, ctx 4096, M8) | 원격 읽기·쓰기, 로컬 direct·buffered 읽기·쓰기 6개 조건 모두 prefill·decode 감속 3% 이내. 가장 큰 감속은 로컬 buffered 읽기의 decode −2.9% |
-| LLM 실행 중 같은 노드 저장 쓰기 (M8) | 로컬 direct 쓰기 714 → 559MB/s (−22%) |
-
-P0의 OSS CPU 값(약 2%)은 fio가 파일을 다시 만들어 데이터가 다른 OST에 놓인 측정 오류였고, 노드 내부 샘플러로 다시 쟀다.
-
-**시사점:** 이 장치와 런타임에서 저장 I/O는 LLM 연산을 거의 늦추지 않는다. 연산 감속은 대조 측정으로만 보고하고, 반대 방향의 쓰기 감속은 쓰기 시점 결정에 넣는다.
-
-### 3.6 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m6-planner-dark.svg">
-  <img alt="플래너 결정 시간: 새 프롬프트 21.4초(prefill 2.8초 + 생성 18.5초), 프롬프트 캐시 시 16.1초, 17.3초" src="docs/figures/m6-planner-light.svg" width="620">
-</picture>
-
-- jetson, llama.cpp, Qwen3-4B Q4_K_M(ctx 4096): 입력 1,653토큰 prefill 2.84초, 생성 약 15.4 tok/s, 결정 1회 16–21초, JSON 스키마 준수 3/3, 메모리 약 4.1GB이다.
-- 조치 유형을 잘못 쓰는 경우가 있었다(예: `repartition` 대상에 컨텍스트 ID 지정).
-
-**시사점:** 이벤트 단위 재계획에 쓸 수 있는 지연이다. 검증기와 조치별 입력 형식 제한이 필요하다.
-
-### 3.7 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 합계가 그 OSS의 1GbE로 제한된다
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m7-oss-sharing-dark.svg">
-  <img alt="client 3개의 총 처리량: OSS 하나를 공유하면 읽기·쓰기 모두 120MB/s, 서로 다른 OSS로 나누면 읽기 303MB/s(2.5배), 쓰기 243MB/s(2.0배)" src="docs/figures/m7-oss-sharing-light.svg" width="620">
-</picture>
-
-| 조건 (client 3개, 30초, direct 4MiB) | 읽기 합계 | 쓰기 합계 |
-|---|---|---|
-| 세 흐름이 OST0001 하나를 공유 | 120MB/s (흐름별 76–92 / 14–21 / 17–21MB/s) | 120MB/s (흐름별 40MB/s) |
-| 서로 다른 OSS로 분산 | 303MB/s (2.5배) | 243MB/s (2.0배) |
-| 3-stripe 파일 + OST0001에 다른 흐름 2개 | 110.8MB/s (혼자 117.6MB/s, −6%) | 69.5MB/s (혼자 93.0MB/s, −25%) |
-
-**시사점:** 원 IFLustre의 OSS 공유 간섭과 "가장 느린 OSS가 성능을 정한다"는 관찰이 엣지에서도 나타난다. 동시 흐름은 서로 다른 OSS로 나눈다.
-
-### 3.8 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다
+### 3.6 관찰 M9: stage 노드의 저장 I/O가 stage 사이 activation 전달을 2–4배 늦춘다
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m9a-activation-handoff-dark.svg">
@@ -537,23 +521,50 @@ P0의 OSS CPU 값(약 2%)은 fio가 파일을 다시 만들어 데이터가 다�
 
 **시사점:** 원격에서 읽히는 객체를 activation을 보내는 stage의 OST에 두면 그 stage가 느려진다. NIC 방향별 점유를 비용 모델에 넣는다.
 
-### 3.9 관찰 M10: LLM 런타임의 KV 캐시와 저장 계층이 서로 모른 채 8GB를 나눠 쓰면 노드가 멈춘다
+### 3.7 관찰 M7: 여러 흐름이 OSS 하나를 공유하면 합계가 그 OSS의 1GbE로 제한된다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10-jetson1-hang-dark.svg">
-  <img alt="jetson1 메모리 추이: MemAvailable이 LLM 서버 로드와 요청마다 줄어 906MB가 된 뒤, 같은 노드의 Lustre direct 읽기가 시작되자 41MB까지 떨어지고 zram 스왑이 3.4GB까지 차면서 노드가 멈춤" src="docs/figures/m10-jetson1-hang-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m7-oss-sharing-dark.svg">
+  <img alt="client 3개의 총 처리량: OSS 하나를 공유하면 읽기·쓰기 모두 120MB/s, 서로 다른 OSS로 나누면 읽기 303MB/s(2.5배), 쓰기 243MB/s(2.0배)" src="docs/figures/m7-oss-sharing-light.svg" width="620">
 </picture>
+
+| 조건 (client 3개, 30초, direct 4MiB) | 읽기 합계 | 쓰기 합계 |
+|---|---|---|
+| 세 흐름이 OST0001 하나를 공유 | 120MB/s (흐름별 76–92 / 14–21 / 17–21MB/s) | 120MB/s (흐름별 40MB/s) |
+| 서로 다른 OSS로 분산 | 303MB/s (2.5배) | 243MB/s (2.0배) |
+| 3-stripe 파일 + OST0001에 다른 흐름 2개 | 110.8MB/s (혼자 117.6MB/s, −6%) | 69.5MB/s (혼자 93.0MB/s, −25%) |
+
+**시사점:** 원 IFLustre의 OSS 공유 간섭과 "가장 느린 OSS가 성능을 정한다"는 관찰이 엣지에서도 나타난다. 동시 흐름은 서로 다른 OSS로 나눈다.
+
+### 3.8 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS가 병목이고, pack에 붙이면 30배 빠르다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m10c-reclaim-dark.svg">
-  <img alt="같은 노드 Lustre 읽기 중 메모리 회수: direct 읽기는 회수 없음, buffered 캐시 상한 512MB는 direct reclaim 67k, 기본 상한은 340k 페이지 스캔. decode 감속은 1.7–3.0%" src="docs/figures/m10c-reclaim-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m13-ingest-pack-dark.svg">
+  <img alt="IoT 레코드 수집 속도: 레코드당 파일 stripe 1 224 rec/s, stripe 3 217 rec/s, pack append 6,642 rec/s(30배), MDS 요청은 레코드당 2.0 대 0.0013" src="docs/figures/m13-ingest-pack-light.svg" width="620">
 </picture>
 
-- jetson1이 측정 중 두 번 멈췄다. 감시 샘플러 기록에서 MemAvailable이 41MB까지 떨어지고 zram 스왑이 3.4GB까지 찬 뒤 멈췄다.
-- 주된 원인은 llama.cpp 서버의 호스트 RAM prompt cache(`--cache-ram`, 기본 8,192MiB)이다. 서버는 프롬프트가 바뀔 때마다 이전 KV를 RAM에 쌓는다. 서로 다른 요청 4개(각 2,705토큰)에서 MemAvailable이 2,668 → 1,581MB로 줄었고, `--cache-ram 0`이면 2,738 → 2,726MB로 유지되었다. 같은 노드의 Lustre I/O가 남은 메모리를 마저 썼다.
-- `--cache-ram 0`이면 ctx 8192 서버와 같은 노드 Lustre 읽기를 함께 돌려도 MemAvailable이 약 2GB로 유지된다. client 캐시 상한이 기본값이면 512MB일 때보다 페이지 회수가 약 5배 많다(direct reclaim 340k 대 67k 페이지 스캔).
+| 방식 (jetson, 512B 레코드 3,000개) | 처리량 | 레코드(파일)당 MDS 요청 |
+|---|---|---|
+| 레코드당 파일, stripe count 1 / 3 | 224 / 217 rec/s | 2.0 |
+| 256KiB 창 파일, stripe count 1 / 3 | 47 / 46MB/s | 2.0 |
+| pack append (32개마다 fsync) | 6,642 rec/s (30배) | 0.0013 |
 
-**시사점:** 런타임 캐시, client 캐시, OSS 메모리는 각자 자기 상한만 지킨다. KV 계층(GPU, 호스트 RAM, 로컬 OST, 원격 OST)과 저장 계층 메모리를 하나의 노드 메모리 예산으로 관리해야 한다. 이후 측정은 모두 `--cache-ram 0`으로 한다.
+**시사점:** 원 IFLustre IoTJ의 소파일 관찰이 엣지에서도 나타난다. KV chunk와 수집 레코드는 pack 단위로 저장한다.
+
+### 3.9 관찰 M12: 원격 KV는 사용 노드로 옮기면 이동 비용을 포함해도 세 번째 사용부터 이득이다
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m12-relocation-dark.svg">
+  <img alt="같은 KV를 5번 쓸 때 누적 시간: 매번 재계산 35.1초, 원격 유지 27.3초, 첫 사용 후 로컬 이동 14.8초" src="docs/figures/m12-relocation-light.svg" width="620">
+</picture>
+
+| 방식 (jetson1, 4k KV 576MiB, 5회 사용) | 1회째 | 2회째부터 (회당) | 5회 누적 |
+|---|---|---|---|
+| 매번 재계산 | 7.15초 | 약 6.98초 | 35.1초 |
+| 원격 OST에서 복원 | 5.49초 | 약 5.46초 | 27.3초 |
+| 첫 사용 후 로컬 OST로 이동 (`lfs migrate`) | 5.49초 + 이동 6.50초 | 약 0.70초 | 14.8초 |
+
+**시사점:** IoTJ 버전의 read-aware relocation이 KV에서도 성립한다. 이동을 백그라운드로 하면 두 번째 사용부터 이득이다. 옮길 KV는 재사용 예측으로 고른다.
 
 ### 3.10 관찰 M11: 체크포인트 쓰기를 KV 복원과 겹치면 복원이 41% 느려지고, 시점을 미루면 2%로 줄어든다
 
@@ -571,65 +582,69 @@ P0의 OSS CPU 값(약 2%)은 fio가 파일을 다시 만들어 데이터가 다�
 
 **시사점:** 원 IFLustre의 runtime-aware allocation(기다릴지, 공유할지)이 엣지에서도 의미가 있다. 체크포인트 크기와 마감 시간으로 시점과 속도를 정한다.
 
-### 3.11 관찰 M12: 원격 KV는 사용 노드로 옮기면 이동 비용을 포함해도 세 번째 사용부터 이득이다
+### 3.11 관찰 M4: Lustre client 캐시가 8GB 메모리를 잠식하고 GPU 할당을 늦춘다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m12-relocation-dark.svg">
-  <img alt="같은 KV를 5번 쓸 때 누적 시간: 매번 재계산 35.1초, 원격 유지 27.3초, 첫 사용 후 로컬 이동 14.8초" src="docs/figures/m12-relocation-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m4a-cache-memfree-dark.svg">
+  <img alt="2GiB buffered 읽기 한 번 후 줄어든 여유 메모리: 기본 캐시 상한 2,162MiB, 캐시 상한 512MB 520MiB" src="docs/figures/m4a-cache-memfree-light.svg" width="620">
 </picture>
-
-| 방식 (jetson1, 4k KV 576MiB, 5회 사용) | 1회째 | 2회째부터 (회당) | 5회 누적 |
-|---|---|---|---|
-| 매번 재계산 | 7.15초 | 약 6.98초 | 35.1초 |
-| 원격 OST에서 복원 | 5.49초 | 약 5.46초 | 27.3초 |
-| 첫 사용 후 로컬 OST로 이동 (`lfs migrate`) | 5.49초 + 이동 6.50초 | 약 0.70초 | 14.8초 |
-
-**시사점:** IoTJ 버전의 read-aware relocation이 KV에서도 성립한다. 이동을 백그라운드로 하면 두 번째 사용부터 이득이다. 옮길 KV는 재사용 예측으로 고른다.
-
-### 3.12 관찰 M13: IoT 레코드를 파일 단위로 쓰면 MDS가 병목이고, pack에 붙이면 30배 빠르다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m13-ingest-pack-dark.svg">
-  <img alt="IoT 레코드 수집 속도: 레코드당 파일 stripe 1 224 rec/s, stripe 3 217 rec/s, pack append 6,642 rec/s(30배), MDS 요청은 레코드당 2.0 대 0.0013" src="docs/figures/m13-ingest-pack-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m4b-cache-gpu-dark.svg">
+  <img alt="Lustre 캐시 상태별 GPU 메모리 할당 시간: 4GiB 1,461/1,807/1,460ms, 5GiB 1,832/2,298/1,824ms (캐시 비움/가득/상한 512MB)" src="docs/figures/m4b-cache-gpu-light.svg" width="620">
 </picture>
 
-| 방식 (jetson, 512B 레코드 3,000개) | 처리량 | 레코드(파일)당 MDS 요청 |
-|---|---|---|
-| 레코드당 파일, stripe count 1 / 3 | 224 / 217 rec/s | 2.0 |
-| 256KiB 창 파일, stripe count 1 / 3 | 47 / 46MB/s | 2.0 |
-| pack append (32개마다 fsync) | 6,642 rec/s (30배) | 0.0013 |
+- client 캐시 기본 상한은 3,810MB(RAM의 1/2)이다. 2GiB buffered 읽기 1회 후 MemFree가 2,162MiB 줄고(상한 512MB이면 520MiB), `MemAvailable`은 105MiB만 줄어든다.
+- 캐시가 찬 상태에서 GPU 4GiB / 5GiB 할당 시간이 24% / 25% 늘고, 가장 느린 256MiB 할당 지연이 2배가 된다. 상한 512MB이면 캐시가 빈 상태와 같다.
 
-**시사점:** 원 IFLustre IoTJ의 소파일 관찰이 엣지에서도 나타난다. KV chunk와 수집 레코드는 pack 단위로 저장한다.
+**시사점:** 8GB unified memory에서 캐시 상한은 필수이다. 메모리 압박은 MemFree와 회수 카운터로 측정한다.
 
-### 3.13 관찰 M14: KV를 사용 노드에 두면 TTFT가 Lustre 기본 할당보다 8–19배 짧다
+### 3.12 관찰 M6: 엣지 LLM 플래너는 형식은 지키지만 내용 검증이 필요하다
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m14-ttft-cdf-dark.svg">
-  <img alt="KV 배치 정책별 TTFT 누적 분포: 사용 노드 배치는 모든 요청이 1.4초 안, Lustre 기본 할당은 중앙값 6.2초·최대 29초, 사용 노드를 보지 않는 부하 분산은 중앙값 16초·최대 42초" src="docs/figures/m14-ttft-cdf-light.svg" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m6-planner-dark.svg">
+  <img alt="플래너 결정 시간: 새 프롬프트 21.4초(prefill 2.8초 + 생성 18.5초), 프롬프트 캐시 시 16.1초, 17.3초" src="docs/figures/m6-planner-light.svg" width="620">
 </picture>
 
-stage 노드 3대(jetson1–3)가 각자 llama-server를 실행하고, 스트림 컨텍스트 12개(각 4k 토큰, KV 576MiB)에 대한 Zipf 분포 요청(초당 0.3개, 4분)을 처리한다. 정책은 KV 파일을 어느 OST에 두느냐만 다르다.
+- jetson, llama.cpp, Qwen3-4B Q4_K_M(ctx 4096): 입력 1,653토큰 prefill 2.84초, 생성 약 15.4 tok/s, 결정 1회 16–21초, JSON 스키마 준수 3/3, 메모리 약 4.1GB이다.
+- 조치 유형을 잘못 쓰는 경우가 있었다(예: `repartition` 대상에 컨텍스트 ID 지정).
 
-| KV 배치 정책 | 로컬 복원 요청 | TTFT p50 | TTFT p90 | TTFT p99 |
-|---|---|---|---|---|
-| Lustre 기본 할당기 | 35 / 79 | 6.2초 | 19.1초 | 25.9초 |
-| OSS 부하 기반 분산 (사용 노드 무시, IFLustre식) | 9 / 79 | 16.0초 | 27.2초 | 38.2초 |
-| 사용 노드 OST | 79 / 79 | 0.79초 | 1.01초 | 1.36초 |
+**시사점:** 이벤트 단위 재계획에 쓸 수 있는 지연이다. 검증기와 조치별 입력 형식 제한이 필요하다.
 
-**시사점:** 원격 KV 복원(576MiB에 5–6초) 동안 같은 노드의 다음 요청이 기다려 꼬리 지연이 커진다. 사용 노드를 보지 않는 부하 분산은 Lustre 기본 할당보다 나쁠 수 있다. 부하 분산의 결과는 배치에 크게 좌우되므로 논문에서는 seed를 바꿔 반복한다.
+### 3.13 관찰 M5·M8: 저장 I/O는 같은 노드의 LLM 연산을 3% 이내로만 늦춘다
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m5-oss-cpu-dark.svg">
+  <img alt="원격 I/O를 처리하는 OSS 노드의 CPU: 유휴 0.8%, 원격 읽기 처리 13.0%, 원격 쓰기 처리 19.0%, softirq는 약 6%" src="docs/figures/m5-oss-cpu-light.svg" width="620">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/m8-llm-under-io-dark.svg">
+  <img alt="저장 I/O 중 LLM 속도(저장 I/O 없을 때 대비): 원격 읽기·쓰기 100%, 로컬 direct 읽기 99%, 로컬 direct 쓰기 99–100%, 로컬 buffered 읽기 prefill 99% decode 97%, 로컬 buffered 쓰기 100%" src="docs/figures/m8-llm-under-io-light.svg" width="620">
+</picture>
+
+| 측정 | 결과 |
+|---|---|
+| 원격 client의 I/O를 처리하는 OSS의 CPU (jetson3, M5) | 읽기 처리(114MB/s) 13.0%, 쓰기 처리(93MB/s) 19.0%. 그중 softirq 약 6% |
+| 같은 노드 저장 I/O 중 LLM 속도 (jetson1, ctx 4096, M8) | 원격 읽기·쓰기, 로컬 direct·buffered 읽기·쓰기 6개 조건 모두 prefill·decode 감속 3% 이내. 가장 큰 감속은 로컬 buffered 읽기의 decode −2.9% |
+| LLM 실행 중 같은 노드 저장 쓰기 (M8) | 로컬 direct 쓰기 714 → 559MB/s (−22%) |
+
+P0의 OSS CPU 값(약 2%)은 fio가 파일을 다시 만들어 데이터가 다른 OST에 놓인 측정 오류였고, 노드 내부 샘플러로 다시 쟀다.
+
+**시사점:** 이 장치와 런타임에서 저장 I/O는 LLM 연산을 거의 늦추지 않는다. 연산 감속은 대조 측정으로만 보고하고, 반대 방향의 쓰기 감속은 쓰기 시점 결정에 넣는다.
 
 ### 3.14 관찰 요약: 성능을 크게 바꾸는 것과 거의 바꾸지 않는 것
 
 | 구분 | 요인 | 실측 | 관찰 |
 |---|---|---|---|
-| 크게 바꾸는 것 | 데이터·KV 위치 | 로컬 대 원격 OST 15–22배, 로컬 KV 복원 대 재계산 7–12배 | M2, M3 |
-| | KV 배치 정책 | TTFT p50 사용 노드 0.79초, Lustre 기본 6.2초, 부하 분산 16.0초 (p90 1.0 / 19.1 / 27.2초) | M14 |
-| | OSS 공유 | 흐름 3개 공유 시 합계 120MB/s, 분산 시 243–303MB/s, 최악 흐름 14MB/s | M7 |
-| | NIC 공유 | activation 전달 2–4배, decode 메시지 왕복 0.6 → 4.6ms | M9 |
+| 크게 바꾸는 것 | KV 배치 정책 | TTFT p50 사용 노드 0.79초, Lustre 기본 6.2초, 부하 분산 16.0초 (p90 1.0 / 19.1 / 27.2초) | M14 |
+| | 데이터·KV 위치 | 로컬 대 원격 OST 15–22배, 로컬 KV 복원 대 재계산 7–12배 | M2, M3 |
 | | 노드 메모리 | 런타임 KV 캐시와 저장 계층 메모리의 합이 넘쳐 노드 정지 2회 | M4, M10 |
-| | 쓰기 시점 | KV 복원 +41%(동시 체크포인트) 대 +2%(시점 지연) | M11 |
-| | 재배치 | 같은 KV 5회 사용 27.3초 → 14.8초 | M12 |
+| | NIC 공유 | activation 전달 2–4배, decode 메시지 왕복 0.6 → 4.6ms | M9 |
+| | OSS 공유 | 흐름 3개 공유 시 합계 120MB/s, 분산 시 243–303MB/s, 최악 흐름 14MB/s | M7 |
 | | 수집 저장 단위 | pack이 레코드당 파일보다 30배 빠름, MDS 요청 1/1,500 | M13 |
+| | 재배치 | 같은 KV 5회 사용 27.3초 → 14.8초 | M12 |
+| | 쓰기 시점 | KV 복원 +41%(동시 체크포인트) 대 +2%(시점 지연) | M11 |
 | 거의 바꾸지 않는 것 | 저장 I/O의 LLM 연산 감속 | prefill·decode 3% 이내 (원격·로컬, direct·buffered 모두) | M8 |
 | | 원격 I/O를 처리하는 OSS의 CPU | CPU 13–19%를 쓰지만 같은 노드 LLM 감속은 거의 없음 | M5, M8 |
 | | striping | stripe 1–3 차이 2% 이내 | M1 |
@@ -657,19 +672,19 @@ LLM이 없는 IoT 수집 워크로드에서 CoStripe가 IFLustre(B2)보다 나�
 
 | 관찰 | 설계 반영 | 위치 |
 |---|---|---|
+| M14 사용 노드 배치 TTFT p50 0.79초 대 부하 분산 16.0초 | 사용 노드를 아는 배치를 기본으로 하고, 부하 기반 할당은 그 위에서 예외 결정 | 4.9.4절 |
 | M1 원격은 1GbE가 상한, striping 이득 없음 | stripe count 1 + 사용 노드 배치 | 4.8.1, 4.9.4절 |
 | M2 로컬 15–22배, 로컬 I/O가 CPU 약 45% 사용 | 사용 노드 배치. CPU 사용은 CPU를 쓰는 작업과의 경쟁으로만 반영 | 4.8.1, 4.9.3절 |
 | M3 로컬 KV 복원이 재계산보다 7–12배 빠름 | KV pack 로컬 배치, 재계산 대 읽기 판단, page cache 우회 | 4.8.2절 |
-| M4 캐시가 메모리를 잠식하고 GPU 할당을 늦춤 | 캐시 상한 필수, 메모리 항을 비용 모델에 | 4.1.3, 4.9.3절 |
-| M5·M8 연산 감속 3% 이내, LLM 실행 중 로컬 쓰기 −22% | β는 작은 항으로 두고 주장에서 제외. 쓰기 감속 γ를 쓰기 시점 결정에 | 4.8.4, 4.9.3절 |
-| M6 플래너는 형식만 신뢰 가능, 메모리 4.1GB | 검증기 필수, 플래너를 NM에 배치 | 4.8.5절 |
-| M7 OSS 공유 시 합계가 NIC 하나로 제한됨 | 동시 흐름을 서로 다른 OSS로 분산, OSS별 동시 흐름 수 n_j | 4.8.4, 4.9.3절 |
-| M9 저장 I/O가 activation 전달을 2–4배 늦춤 | 원격에서 읽히는 객체를 activation을 보내는 stage의 OST에 두지 않음, NIC 방향별 점유 U_k | 4.8.4, 4.9.4절 |
 | M10 런타임 KV 캐시와 저장 계층 메모리가 8GB를 넘겨 노드 정지 | KV 계층과 저장 계층 메모리를 하나의 예산으로 관리, 런타임 캐시는 끄거나 예산에 포함 | 4.1.3, 4.8.4절 |
-| M11 체크포인트와 KV 복원이 겹치면 +41% | 백그라운드 쓰기의 시점 지연 (runtime-aware 계승) | 4.8.3, 4.8.4절 |
-| M12 원격 KV는 이동 후 세 번째 사용부터 이득 | 재사용 예측 기반 migrate (read-aware relocation 계승) | 4.8.2절 |
+| M9 저장 I/O가 activation 전달을 2–4배 늦춤 | 원격에서 읽히는 객체를 activation을 보내는 stage의 OST에 두지 않음, NIC 방향별 점유 U_k | 4.8.4, 4.9.4절 |
+| M7 OSS 공유 시 합계가 NIC 하나로 제한됨 | 동시 흐름을 서로 다른 OSS로 분산, OSS별 동시 흐름 수 n_j | 4.8.4, 4.9.3절 |
 | M13 레코드당 파일은 MDS가 병목 | KV chunk와 수집 레코드를 pack 단위로 저장 | 4.8.2절 |
-| M14 사용 노드 배치 TTFT p50 0.79초 대 부하 분산 16.0초 | 사용 노드를 아는 배치를 기본으로 하고, 부하 기반 할당은 그 위에서 예외 결정 | 4.9.4절 |
+| M12 원격 KV는 이동 후 세 번째 사용부터 이득 | 재사용 예측 기반 migrate (read-aware relocation 계승) | 4.8.2절 |
+| M11 체크포인트와 KV 복원이 겹치면 +41% | 백그라운드 쓰기의 시점 지연 (runtime-aware 계승) | 4.8.3, 4.8.4절 |
+| M4 캐시가 메모리를 잠식하고 GPU 할당을 늦춤 | 캐시 상한 필수, 메모리 항을 비용 모델에 | 4.1.3, 4.9.3절 |
+| M6 플래너는 형식만 신뢰 가능, 메모리 4.1GB | 검증기 필수, 플래너를 NM에 배치 | 4.8.5절 |
+| M5·M8 연산 감속 3% 이내, LLM 실행 중 로컬 쓰기 −22% | β는 작은 항으로 두고 주장에서 제외. 쓰기 감속 γ를 쓰기 시점 결정에 | 4.8.4, 4.9.3절 |
 
 ---
 
