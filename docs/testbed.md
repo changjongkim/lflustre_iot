@@ -80,18 +80,19 @@
 | ID | 문제 | 영향 | 제안 조치 (승인 필요) |
 |---|---|---|---|
 | F1 | MDT와 OST 3대의 `mgsnode`가 무선 IP `192.168.0.60@tcp`를 먼저 가리키고 있다. 서버의 MGC import가 CONNECTING 상태로 약 1,650회 재연결을 시도 중이다. jetson0의 LNet NID는 유선 `.50`뿐이다. | 데이터 I/O는 정상이다. 영구 설정(`set_param -P`), OST pool, 새 OST 등록 등 MGS가 필요한 작업이 실패할 수 있다. | 각 target을 잠시 내리고 `tunefs.lustre --erase-param mgsnode --mgsnode=192.168.0.50@tcp` |
-| F2 | jetson(client)에 NVMe가 없고, jetson0 NVMe는 MGT·MDT가 전부 사용한다. | README의 5-OST 하이퍼컨버지드 구성은 장치 추가나 MDT 재구축 없이는 불가능하다. | `docs/hyperconverged_plan.md` 방안 A' |
+| F2 | jetson(client)에 NVMe가 없고, jetson0 NVMe는 MGT·MDT가 전부 사용한다. | 이전 README의 5-OST 하이퍼컨버지드 구성은 장치 추가나 MDT 재구축 없이는 불가능하다. | 방안 A' 채택, 방안 B 제외 (2026-10-22, `docs/hyperconverged_plan.md`) |
 | F3 | jetson 송신 대역폭이 약 725Mb/s로 다른 노드(약 930Mb/s)보다 낮다. | client 쓰기 대역폭이 약 93MB/s로 제한된다. | 케이블·스위치 포트 교체 후 재측정 |
 | F4 | 5대 모두 GUI(graphical.target)가 켜져 있고, jetson에는 다른 에이전트 프로세스가 실행 중이다. | 실험과 무관한 메모리 사용(jetson 약 1.8GB)으로 메모리 실측과 간섭 측정이 왜곡된다. | 실험 기간 multi-user.target 전환, 실험 노드에서 다른 프로세스 중지 |
 | F5 | 노드 간 시각 오차가 NTP 기준 12–30ms이다. | 노드 간 이벤트 정렬 정확도가 떨어진다(목표 1ms). | jetson0를 로컬 시간 서버로 하는 chrony 구성 |
 | F6 | 측정 중 SSH로 상태를 자주 조회하면 polkitd·dbus CPU가 증가한다. jetson2는 다른 노드보다 측정 중 CPU 사용률이 높게 나왔다(13–19% vs 약 2%). | OSS CPU 측정값이 오염된다. | 본 실험에서는 노드 안에서 직접 기록하는 샘플러 사용 |
+| F7 | M8 원격 쓰기 조건(jetson이 OST0000에 약 93MB/s로 쓰고, jetson1에서 llama-server decode 실행) 중 jetson1이 17:46경 응답을 멈추고 재부팅되었다. 17:49 부팅 21초 후 NVIDIA 디스플레이 드라이버(`nv_pmops_runtime_suspend`) NULL 참조로 커널 panic이 한 번 더 발생했다. 17:52 부팅에서 `lustre-starter` 서비스가 OST0000을 자동 마운트했고(MGS 무선 주소 실패 후 유선 `.50`으로 진행, 약 50초), client는 복구되었다. | 첫 멈춤의 원인 기록이 없다(ramoops에는 두 번째 panic만 남음). 같은 조건 재현 시 데이터가 있는 OST가 다시 비정상 종료될 수 있다. | 노드 내부 샘플러로 전력(VDD_IN)·온도·메모리를 초 단위로 기록하며 1회 재현 시도. 반복되면 저장 쓰기와 GPU 연산 동시 실행 조건을 제한 |
 
 ## 5. 사전 점검 결과
 
 | 점검 | 결과 | 측정값·내용 | README 가정과 차이 |
 |---|---|---|---|
 | C1 Lustre 기능 | 통과 | OST 지정, 디렉터리 상속, PFL, FLR(create/extend/resync/verify), migrate(경로 유지), NRS TBF(활성화·규칙 추가·복원), jobstats(조회) | jobstats는 꺼져 있음 |
-| C2 저장 경로 | 통과 (원격 경로만) | 아래 표 | 같은 노드 OST 경로는 client 마운트가 없어 측정 불가. raw NVMe는 Lustre 외 파일 시스템이 없어 측정 불가 |
+| C2 저장 경로 | 통과 (원격 경로만). stripe 2·3은 fio가 파일을 다시 만들어 설정이 사라졌을 수 있어 재측정함(`results/motivation/m1b`, 결론 동일) | 아래 표 | 같은 노드 OST 경로는 client 마운트가 없어 측정 불가. raw NVMe는 Lustre 외 파일 시스템이 없어 측정 불가 |
 | C4 캐시 설정 | 기록 완료 | 3절 표 | client 캐시 상한이 RAM의 1/2로 README 가정과 일치 |
 | C5 메모리 | 일부 완료 | 아래 표, 캐시–GPU 할당 실험은 `results/p0/summary.md` ③ | PyTorch 미설치로 런타임 오버헤드는 미측정 |
 | C8 플래너 | 통과 (형식), 내용 품질 부족 | llama.cpp(commit e3797b1, CUDA sm_87), Qwen3-4B Q4_K_M: 입력 1,653토큰 prefill 2.84초, 생성 15.4 tok/s, 결정 1회 16–21초, JSON 3/3 유효, 메모리 약 4.1GB | README 추정 3.0GB보다 메모리가 큼 |

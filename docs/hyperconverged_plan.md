@@ -1,8 +1,8 @@
 # 하이퍼컨버지드 구성 전환 계획서 (P0)
 
 > 작성: 2026-10-22, P0 점검 결과 기준
-> 상태: 검토용 초안. 아래 명령은 실행하지 않았다. 실행 전 사용자 승인이 필요하다.
-> 결정 (2026-10-22): 방안 B(5-OST)는 제외한다. MGS 주소 정정은 당장 하지 않는다(서버 재부팅·OST 추가·영구 설정 때만 필요).
+> 상태: 방안 A' 채택 (2026-10-22). 아래 명령은 아직 실행하지 않았다. client 마운트는 사용자 승인 후 실행한다.
+> 결정 (2026-10-22): 방안 A'를 설계 기준으로 한다(README 4.1.1절). 방안 B(5-OST)는 제외한다. MGS 주소 정정은 당장 하지 않는다(서버 재부팅·OST 추가·영구 설정 때만 필요).
 
 ## 1. 현재 구성 (실측)
 
@@ -28,13 +28,13 @@
 | 방안 | 내용 | 파괴적 작업 | 하드웨어 추가 |
 |---|---|---|---|
 | A | jetson0–3에 client 마운트만 추가. OST는 그대로 3개 | 없음 (마운트 해제로 원복) | 없음 |
-| A' | A + 역할 재배치: stage 노드 = jetson1–3 (로컬 OST 보유), jetson = 제어·수집·플래너, jetson0 = MDS | 없음 | 없음 |
+| A' (채택) | A + 역할 재배치: stage 노드 = jetson1–3 (로컬 OST 보유), jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너 | 없음 | 없음 |
 | B | README와 같은 5-OST 구성: jetson에 NVMe 장착 후 OST 추가, jetson0는 NVMe 재분할 후 OST 추가 | jetson0 MDT 재포맷 → 파일 시스템 재구축 (기존 데이터 약 150GB 백업 필요) | jetson용 NVMe 1개 |
 | C | 현재 분리형 구성 유지, 관찰 실험의 비교 기준으로만 사용 | 없음 | 없음 |
 
 ### 방안 A / A' 절차 (작성만 함)
 
-1. (권장 선행) 서버 MGS 주소 정정. 대상 노드에서 해당 target을 잠시 내려야 한다.
+1. (선택, 당장 하지 않음) 서버 MGS 주소 정정. 서버 재부팅, OST 추가, 영구 설정(`set_param -P`)이 필요할 때만 한다. 대상 노드에서 해당 target을 잠시 내려야 한다.
    ```bash
    # MDT (jetson0) — MGS와 같은 노드
    umount /mnt/lustre/mdt0
@@ -45,7 +45,7 @@
    tunefs.lustre --erase-param mgsnode --mgsnode=192.168.0.50@tcp /dev/nvme0n1
    mount -t lustre /dev/nvme0n1 /mnt/lustre/ost<N>
    ```
-2. 서버 노드에 client 마운트
+2. 서버 노드(jetson1–3)에 client 마운트
    ```bash
    mkdir -p /mnt/lustrefs
    mount -t lustre 192.168.0.50@tcp:/lustrefs /mnt/lustrefs
@@ -68,22 +68,24 @@
 | client와 OSS를 같은 노드에 둘 때 메모리 압박에 의한 hang | A, A', B | client 캐시 상한(512MB 이하), C3 안정성 시험 후 진행 |
 | GUI(graphical.target)가 메모리 약 0.5–1GB 사용 | 전부 | 실험 기간 multi-user.target으로 전환 검토 (사용자 승인 필요) |
 | zram 스왑 3.8GB가 메모리 압박 측정에 영향 | 전부 | 실험 조건으로 고정·기록, 비활성화 여부 결정 필요 |
-| MGS 미연결 상태에서 설정 변경 실패 | 전부 | 1단계에서 MGS 주소 정정 |
+| MGS 미연결 상태에서 영구 설정 변경 실패 | 전부 | 비영구 설정(`lctl set_param`)만 사용. 영구 설정이 필요해지면 1단계 수행 |
 | 재구축 중 데이터 손실 | B | 백업 후 진행 |
 
 ## 5. README 설계에 주는 영향
 
 | 항목 | A' 적용 시 |
 |---|---|
-| N0–N4 대응 | stage 노드는 jetson1–3 (로컬 OST 보유). jetson은 제어·수집·플래너 (README의 N0 역할), jetson0는 MDS 전용 또는 4번째 stage (로컬 OST 없음) |
-| 파이프라인 stage 수 | 3-stage(jetson1–3)이면 Qwen3-4B FP16 stage당 LG 4개(약 2.4GB, 양 끝 stage는 임베딩 포함 약 3.2GB). 메모리 실측(C5) 후 결정 |
-| OST0 mirror (연산 없는 노드의 복제본) | 연산 없는 노드의 OST가 없음 → 가중치·봉인 pack의 mirror를 인접 stage 노드 OST에 둠 |
-| 장애 대체 노드 | jetson(로컬 OST 없음)이 대체 stage를 맡고 원격으로 로드, 또는 2-stage 재분할 |
-| KV pack 로컬 배치 | stage 노드(jetson1–3)는 가능. jetson0를 stage로 쓰면 그 stage는 원격만 가능 |
+| 노드 대응 | N1–N3 = jetson1–3 (stage, 로컬 OST 보유), N0 = jetson (제어·수집·대체 stage), NM = jetson0 (MDS + 플래너) |
+| 파이프라인 stage 수 | 3-stage(jetson1–3). Qwen3-4B FP16 stage당 LG 4개(약 2.4GB, 양 끝 stage는 임베딩 포함 약 3.2GB). KV 상주 가용 약 1.2 / 2.0 / 0.9GB |
+| 복제본 위치 | 연산 없는 노드의 OST가 없음 → 가중치는 다음 stage 노드 OST에 mirror(N1 → N2 → N3 → N1), 체크포인트는 N1 또는 N2, 어댑터는 세 stage 모두. 쓰기 시점은 비용 모델이 저부하 구간으로 고름 |
+| 장애 대체 노드 | jetson(로컬 OST 없음)이 대체 stage를 맡고 이웃 mirror에서 원격 로드(약 21–28초). 2-stage 재분할은 FP16에서 KV 공간이 남지 않아 INT8일 때만 가능 |
+| KV pack 로컬 배치 | stage 노드(jetson1–3)는 가능. 대체 stage(jetson)는 원격 읽기 또는 재계산 |
 
-## 6. 추천
+## 6. 결정 (2026-10-22)
 
-1. **지금:** 방안 A'로 진행한다. 파괴적 작업 없이 "스토리지 서버 = 연산 노드" 조건을 jetson1–3에서 바로 만들 수 있다. 선행 작업으로 MGS 주소를 정정한다.
-2. **비교 기준:** 현재 분리형 구성(방안 C)을 관찰 실험의 비교 기준으로 함께 쓴다(client 전용 노드 jetson 기준 측정).
-3. **방안 B 판단:** A'에서 O1–O4를 측정한 뒤, 5-OST 구성이 필요하다고 판단될 때 NVMe 추가와 재구축 일정을 따로 정한다.
-4. **실험 전 결정 필요:** GUI 비활성화 여부, zram 설정, PyTorch 설치 방식.
+1. **방안 A'를 채택한다.** 파괴적 작업 없이 "스토리지 서버 = 연산 노드" 조건을 jetson1–3에서 만든다. 역할은 jetson1–3 = OSS + 서빙 stage(3-stage), jetson = 제어·수집·대체 stage, jetson0 = MDS + 플래너이다. README 4장 설계를 이 구성으로 갱신했다.
+2. **플래너는 jetson0에 둔다(기본값).** MDS 메모리 사용량이 작고(약 120MiB) 플래너는 이벤트 때만 실행된다. 플래너 실행 중 MDS 메타데이터 지연은 O4에서 측정해 확정한다.
+3. **MGS 주소 정정은 선행 조건이 아니다.** client 마운트와 비영구 설정에는 영향이 없다. 서버 재부팅, OST 추가, 영구 설정이 필요할 때만 한다.
+4. **방안 B(5-OST)는 제외한다.**
+5. **비교 기준:** 현재 분리형 구성(방안 C, jetson만 client)을 관찰 실험의 비교 기준으로 함께 쓴다.
+6. **실험 전 결정 필요:** jetson1–3 client 마운트 시점(사용자 승인), GUI 비활성화 여부, zram 설정, PyTorch 설치 방식.

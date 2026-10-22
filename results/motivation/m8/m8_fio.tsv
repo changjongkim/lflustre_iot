@@ -1,0 +1,7 @@
+cond	llm	fio_MB_s
+rread	off	114.7
+rwrite	off	93.5
+rread	on	116.7
+rwrite	on	92.8
+rread	on	89.4
+rwrite	on	

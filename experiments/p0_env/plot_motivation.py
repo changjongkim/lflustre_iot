@@ -55,6 +55,13 @@ def c5():
     for m in re.finditer(r"cap=(\d+)MiB \| before: MemFree:=(\d+)MiB.*?\| after: MemFree:=(\d+)MiB", t):
         out[int(m[1])] = int(m[2]) - int(m[3])
     return out
+def m1b():
+    """M1b 재측정 (results/motivation/m1b). P0 C2의 stripe 2·3 값은 fio가 파일을 다시 만들어 레이아웃이 사라졌을 수 있어 쓰지 않는다."""
+    d = {}
+    for l in (ROOT / "results/motivation/m1b/m1b.tsv").read_text().splitlines()[1:]:
+        f = l.split("\t")
+        d.setdefault((int(f[0]), f[1]), []).append(float(f[3]))
+    return {k: st.mean(v) for k, v in d.items()}
 def iperf():
     d = {}
     for l in (R / "iperf3.txt").read_text().splitlines():
@@ -103,19 +110,17 @@ def plot_all(mode):
     hbars(t, "m1a-network", mode, ["Server <-> server (1GbE)", "Server -> client (1GbE)", "Client -> server (1GbE)", "WiFi (reference)"],
           [nn, cl_rx, cl_tx, wifi], " Mb/s", "Node-to-node bandwidth (iperf3)")
     # M1-b: striping
-    c = c2()
+    c = c2(); b = m1b()
     cats = ["1 OST", "2 OSTs", "3 OSTs"]
-    w = [st.mean(st.mean(x[0] for x in c[(f"ost{i}", "write", "4M", "1")]) for i in range(3)),
-         st.mean(x[0] for x in c[("stripe2", "write", "4M", "1")]), st.mean(x[0] for x in c[("stripe3", "write", "4M", "1")])]
-    r = [st.mean(st.mean(x[0] for x in c[(f"ost{i}", "read", "4M", "1")]) for i in range(3)),
-         st.mean(x[0] for x in c[("stripe2", "read", "4M", "1")]), st.mean(x[0] for x in c[("stripe3", "read", "4M", "1")])]
+    w = [b[(sc, "write")] for sc in (1, 2, 3)]
+    r = [b[(sc, "read")] for sc in (1, 2, 3)]
     f, ax = fig(t); xs = range(3); bw = 0.14
     for i, (vals, lab, col) in enumerate([(w, "Write", t["s"][0]), (r, "Read", t["s"][1])]):
         pos = [x + (i - 0.5) * bw for x in xs]
         ax.bar(pos, vals, width=bw, color=col, edgecolor=t["surface"], linewidth=2, label=lab)
         for p, v in zip(pos, vals): ax.text(p, v + 2, f"{v:.0f}", ha="center", va="bottom", color=t["ink"], fontsize=9)
-    ax.axhline(117, color=t["muted"], linewidth=1); ax.text(2.55, 120, "1GbE line rate", ha="right", va="bottom", color=t["ink2"], fontsize=8.5)
-    ax.set_xticks(list(xs)); ax.set_xticklabels(cats); ax.set_ylim(0, 140); ax.set_xlim(-0.6, 2.6); ax.set_ylabel("MB/s", color=t["ink2"])
+    ax.axhline(125, color=t["muted"], linewidth=1); ax.text(2.55, 127, "1 Gb/s = 125 MB/s", ha="right", va="bottom", color=t["ink2"], fontsize=8.5)
+    ax.set_xticks(list(xs)); ax.set_xticklabels(cats); ax.set_ylim(0, 150); ax.set_xlim(-0.6, 2.6); ax.set_ylabel("MB/s", color=t["ink2"])
     legend(ax, t, loc="upper left", ncol=2); title(ax, t, "Client throughput vs. stripe count (remote OSTs)"); save(f, "m1b-striping", mode)
     # M2-a: 로컬 vs 원격
     d = x1()
@@ -164,6 +169,7 @@ def plot_all(mode):
     ax.set_ylabel("Milliseconds", color=t["ink2"]); legend(ax, t, loc="upper left", ncol=3, fontsize=8.5)
     title(ax, t, "GPU memory allocation time vs. Lustre client cache"); save(f, "m4b-cache-gpu", mode)
 
-for mode in ("light", "dark"):
-    plot_all(mode)
-print(sorted(p.name for p in OUT.glob("*.svg")))
+if __name__ == "__main__":
+    for mode in ("light", "dark"):
+        plot_all(mode)
+    print(sorted(p.name for p in OUT.glob("*.svg")))

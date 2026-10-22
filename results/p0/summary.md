@@ -57,7 +57,7 @@
 | 점검 | 결과 |
 |---|---|
 | C1 Lustre 기능 | 통과 (OST 지정, 상속, PFL, FLR, migrate, TBF) |
-| C2 client → OST (분리형) | 쓰기 93MB/s, 읽기 115MB/s, stripe count 1–3 모두 동일 |
+| C2 client → OST (분리형) | 쓰기 93MB/s, 읽기 115MB/s, stripe count 1–3 모두 동일. stripe 2·3은 레이아웃을 확인하며 재측정함(`results/motivation/m1b`, 읽기 117.5MB/s, 결론 동일) |
 | C4 캐시 설정 | client 캐시 상한 3,810MB (RAM의 1/2), OSS 측 캐시 꺼짐, jobstats 꺼짐 |
 | C5 메모리 | CUDA 컨텍스트 약 74MiB, 2GiB buffered 읽기 시 MemFree −2.16GB (상한 512MB면 −0.52GB), Lustre 서버 memused 약 120MiB |
 | C8 플래너 | Qwen3-4B Q4_K_M, 입력 1,653토큰 prefill 2.84초(583 tok/s), 생성 15.4 tok/s, 결정 1회 16–21초, JSON 3/3 유효, 메모리 약 4.1GB. 조치 내용은 부정확 → 검증기와 조치별 형식 제한 필요 |
@@ -72,7 +72,8 @@
 | F3 | jetson 송신 약 725Mb/s | 케이블·포트 교체 |
 | F4 | GUI 켜짐, jetson에 다른 프로세스 약 1.8GB | 실험 기간 GUI 끄기, 프로세스 정리 |
 | F5 | 시간 오차 12–30ms | 로컬 시간 서버 구성 |
-| F6 | SSH 조회가 CPU 측정을 오염 | 노드 내부 샘플러 사용 (적용 예정) |
+| F6 | SSH 조회가 CPU 측정을 오염 | 노드 내부 샘플러 사용 (적용함, `experiments/motivation/sampler.py`) |
+| F7 | 원격 쓰기 + LLM 실행 중 jetson1 재부팅, 이후 부팅 중 NVIDIA 드라이버 panic 1회 (`docs/testbed.md`) | 진단 기록을 켜고 1회 재현할지 |
 | – | PyTorch 미설치 | 설치 방식(NVIDIA wheel / jetson-containers) |
 | – | 플래너 메모리 4.1GB | 플래너 모델 크기(4B/1.7B)와 배치 노드 |
 
