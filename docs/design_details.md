@@ -106,7 +106,7 @@ LG 12개를 N1–N3에 연속 구간으로 배정해 파이프라인 추론을 �
 3. **기본 레이아웃은 모든 노드에 부하를 준다.** LG 파일이 OST 전체에 흩어져 대부분 원격 읽기가 되고, 다른 stage 노드의 OSS에도 부하가 생긴다.
 4. **striping이 이득이 되지 않는다.** 1GbE에서는 원격 stripe가 가장 느린 stripe가 되어 파일 읽기 전체를 늦춘다.
 5. **장애 시 데이터도 함께 사라진다.** 노드 장애가 나면 연산과 OST가 함께 사라진다. 연산이 없는 OST가 없으므로 복제본도 다른 stage 노드에 두어야 한다.
-6. **임베딩은 소비 노드가 둘이다(stage 1, 3).**
+6. **임베딩은 사용 노드가 둘이다(stage 1, 3).**
 7. **분할과 배치는 따로 정할 수 없다(D5).**
 
 **세부 문제**
@@ -120,9 +120,9 @@ LG 12개를 N1–N3에 연속 구간으로 배정해 파이프라인 추론을 �
 
 **해결 방법**
 1. **LG 단위 파일.** `weights/<model>/lg{i}.safetensors`(약 0.6GB)로 저장한다. 재분할할 때 파일 단위로 이동한다.
-2. **기본 배치.** LG 파일은 소비 노드 OST에 둔다(`lfs setstripe -c 1 -i <OST>`). 임베딩은 stage 1 OST에 두고 stage 3 OST에 mirror를 둔다.
+2. **기본 배치.** LG 파일은 사용 노드 OST에 둔다(`lfs setstripe -c 1 -i <OST>`). 임베딩은 stage 1 OST에 두고 stage 3 OST에 mirror를 둔다.
 3. **stripe count는 1로 고정한다.** O1의 striping 측정 결과를 근거로 쓴다.
-4. **이웃 stage mirror.** stage k의 LG 가중치는 다음 stage 노드 OST에 FLR mirror를 둔다(N1 → N2 → N3 → N1). 임베딩은 두 소비 노드(N1, N3)에 이미 한 벌씩 있다. 노드당 추가 저장량은 약 2.4GB이고, 읽기 전용이므로 동기화 비용이 없다. 이웃 노드도 서빙 노드이므로, mirror 생성 I/O는 비용 모델이 고른 저부하 시점에 TBF로 속도를 제한해 수행한다.
+4. **이웃 stage mirror.** stage k의 LG 가중치는 다음 stage 노드 OST에 FLR mirror를 둔다(N1 → N2 → N3 → N1). 임베딩은 두 사용 노드(N1, N3)에 이미 한 벌씩 있다. 노드당 추가 저장량은 약 2.4GB이고, 읽기 전용이므로 동기화 비용이 없다. 이웃 노드도 서빙 노드이므로, mirror 생성 I/O는 비용 모델이 고른 저부하 시점에 TBF로 속도를 제한해 수행한다.
 5. **대체 분할 두 가지.**
 
    | 대체 분할 | 내용 | 장점 | 단점 |
@@ -146,7 +146,7 @@ EdgeShard, PipeEdge, LOIP는 연산·메모리·네트워크로 분할한다. �
 
 **원 IFLustre와의 관계**
 
-시작 OST 지정을 그대로 쓰고, 할당 기준을 소비 노드와 연산 부하로 확장한다. 1GbE에서 stripe count 증가가 불리한 현상은 원 관찰("성능은 가장 느린 OSS가 결정")의 연장으로 설명한다.
+시작 OST 지정을 그대로 쓰고, 할당 기준을 사용 노드와 연산 부하로 확장한다. 1GbE에서 stripe count 증가가 불리한 현상은 원 관찰("성능은 가장 느린 OSS가 결정")의 연장으로 설명한다.
 
 ### 3.2 ② 의미 기반 content-addressed KV 저장소
 
@@ -222,8 +222,8 @@ EdgeShard, PipeEdge, LOIP는 연산·메모리·네트워크로 분할한다. �
    - 공유 prefix chunk는 라인별 공유 pack에 두고, 작은 전역 인덱스(주소 → 경로·오프셋)로 찾는다.
    - chunk마다 파일을 만드는 방식(세션당 수백 개 파일)보다 MDS 메타데이터 연산이 크게 줄어든다. 원 IFLustre의 소파일 관찰을 반영한 설계이다.
 5. **배치와 복제 (2e)**
-   - LG i의 pack은 LG i 소비 노드 OST에 둔다(로컬 쓰기·읽기).
-   - 비용 모델이 소비 노드를 병목으로 판단하면, 새 pack의 위치를 다른 노드로 바꾼다(디렉터리 default layout).
+   - LG i의 pack은 LG i 사용 노드 OST에 둔다(로컬 쓰기·읽기).
+   - 비용 모델이 사용 노드를 병목으로 판단하면, 새 pack의 위치를 다른 노드로 바꾼다(디렉터리 default layout).
    - 공유 prefix pack은 이웃 stage 노드 OST에 FLR mirror를 둔다. 봉인된 스트림 pack의 복제 여부는 의미 정보(라인 우선순위, 이상 구간 포함 여부)로 정한다.
    - 이웃 노드도 서빙 노드이므로, 복제는 비용 모델이 고른 저부하 시점에 TBF로 속도를 제한해 실행한다. 봉인된 pack은 바뀌지 않으므로 mirror가 낡지 않는다.
 6. **메모리 상주와 미리 읽기 (2f)**
@@ -705,7 +705,7 @@ act_key(n)   = H(model_id ‖ "act@LG" ‖ boundary_lg ‖ chain_n)     # 경계
 ```
 
 - `<scope>`: 해당 LG에 영향을 주는 어댑터 버전. 하위 LG는 `none`, 상위 LG는 `v{n}`이다.
-- 디렉터리 단위로 default layout을 설정해 OST를 정한다. 예: `ctx/{ctx_id}/e{epoch}/lg{i}/` → LG i 소비 노드 OST.
+- 디렉터리 단위로 default layout을 설정해 OST를 정한다. 예: `ctx/{ctx_id}/e{epoch}/lg{i}/` → LG i 사용 노드 OST.
 
 ### 8.3 pack 형식
 

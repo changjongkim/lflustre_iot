@@ -10,7 +10,7 @@ M1–M6는 두 가지를 보였다. 데이터 위치가 접근 시간을 15–22
 
 1. **원 IFLustre의 전제가 엣지에서도 성립한다.** 이것이 없으면 "IFLustre 확장"이 아니라 새 시스템이 된다. OSS 공유 간섭, 가장 느린 OSS의 지배, 시점 지연의 이득, 읽기 기반 재배치의 이득, 소파일의 한계를 엣지에서 다시 측정한다.
 2. **하이퍼컨버지드 구성에서 새 간섭이 생긴다.** IFLustre는 OSS 사이의 간섭만 본다. 같은 노드의 저장 I/O와 LLM 연산, NIC를 함께 쓰는 저장 I/O와 pipeline activation, 저장 캐시와 LLM 메모리 사이의 간섭을 측정한다.
-3. **IFLustre의 결정 방식만으로는 부족하다.** IFLustre는 OSS 부하만 보고, 앱 이름별 과거 로그로 시작 시 한 번 결정한다. 소비 위치와 연산 부하를 무시한 배치가 TTFT를 얼마나 늘리는지 작은 end-to-end 실험으로 보인다.
+3. **IFLustre의 결정 방식만으로는 부족하다.** IFLustre는 OSS 부하만 보고, 앱 이름별 과거 로그로 시작 시 한 번 결정한다. 사용 노드와 연산 부하를 무시한 배치가 TTFT를 얼마나 늘리는지 작은 end-to-end 실험으로 보인다.
 
 **방향 수정 (2026-10-22).** M8 재측정(런타임 캐시 끔)에서 같은 노드 저장 I/O의 LLM 연산 감속은 원격·로컬, direct·buffered 모두 3% 이내였다. 그래서 "저장 I/O가 LLM 연산을 늦춘다"는 주장은 빼고, 간섭을 공유 자원(OSS, NIC, 노드 메모리)과 쓰기 시점으로 정의한다. 성능을 몇 배씩 바꾼 것은 데이터·KV 위치(M2, M3, M14), OSS 공유(M7), NIC 공유(M9), 메모리 예산(M4, M10), 쓰기 시점(M11)이다. 연산 감속은 대조 측정으로만 보고한다(README 3.14절).
 
@@ -19,10 +19,10 @@ M1–M6는 두 가지를 보였다. 데이터 위치가 접근 시간을 15–22
 | 원 IFLustre 정책·관찰 | 엣지(A')에서의 형태 | 증명 실험 | CoStripe 반영 |
 |---|---|---|---|
 | Interference-free allocation (OSS 공유 회피) | OSS마다 1GbE NIC가 상한이다. 두 흐름이 한 OSS를 공유하면 각자 절반이 된다 | M7 | 동시 흐름을 서로 다른 OSS로 분산 |
-| 가장 느린 OSS가 성능을 결정 | 여러 OST에 걸친 파일은 바쁜 stage 노드의 OST가 전체 속도를 정한다 | M7 | stripe count 1 + 소비 노드 배치 |
+| 가장 느린 OSS가 성능을 결정 | 여러 OST에 걸친 파일은 바쁜 stage 노드의 OST가 전체 속도를 정한다 | M7 | stripe count 1 + 사용 노드 배치 |
 | Throughput-aware allocation (많은 OSS 사용) | 단일 client는 자기 NIC가 상한(M1). 다수 client의 총합은 OSS 수만큼 늘어난다 | M7 | 흐름 단위 분산, 파일 단위 striping은 사용하지 않음 |
 | Runtime-aware allocation (대기 vs 공유) | 체크포인트·복제·수집 시점 prefill 쓰기가 KV 복원과 겹치면 TTFT가 늘어난다 | M11 | 백그라운드 I/O의 시점 지연과 TBF 속도 제한 |
-| Read-aware relocation (IoTJ) | 반복 읽히는 KV pack은 소비 노드 OST로 옮기면 이후 7–12배 빨라진다 | M12 | 재사용 횟수 기반 migrate/mirror |
+| Read-aware relocation (IoTJ) | 반복 읽히는 KV pack은 사용 노드 OST로 옮기면 이후 7–12배 빨라진다 | M12 | 재사용 횟수 기반 migrate/mirror |
 | 소파일 관찰 (IoTJ) | IoT 레코드를 파일 단위로 쓰면 MDS 요청이 병목이고 striping은 효과가 없다 | M13 | pack append 저장 |
 | (확장) 간섭 범위: 같은 노드 연산 | 저장 I/O가 같은 노드의 prefill·decode를 늦춘다. 반대 방향도 측정 | M8 | 비용 모델 β_k |
 | (확장) 간섭 범위: 네트워크 | 저장 I/O가 stage 사이 activation 전달을 늦춘다 | M9 | 비용 모델 A_k, U_k |
@@ -41,7 +41,7 @@ IFLustre 이점 유지는 평가에서도 확인한다. LLM이 없는 IoT 수집
 | M11 | 백그라운드 쓰기의 시점 지연(runtime-aware)이 KV 복원을 보호하는가 | jetson3: 주기적 KV slot 복원(4k, 576MiB) + 체크포인트 쓰기(1GiB) | 동시 / 복원 후 지연 / TBF 속도 제한 | 복원 시간 분포, 체크포인트 완료 시간 | jetson3 client 마운트 | 20분 |
 | M12 | 읽기 기반 재배치(read-aware relocation)가 KV에서 언제 이득인가 | jetson1: 원격 OST에 있는 KV를 k번 재사용 | 항상 원격 / 매번 재계산 / 첫 사용 후 `lfs migrate`로 로컬 이동 | 누적 시간, 손익분기 재사용 횟수, migrate 중 간섭 | jetson1 client 마운트 | 15분 |
 | M13 | IoT 레코드를 파일 단위로 쓰는 것과 pack에 붙이는 것의 차이 | jetson(client) | 레코드당 파일 / 256KiB 창 파일 / pack append, stripe count 1·3 | 레코드/s, MB/s, 레코드당 MDS 요청 | 없음 | 5분 |
-| M14 | 소비 위치·연산 부하를 무시한 배치가 TTFT를 얼마나 늘리는가 (작은 end-to-end) | jetson1–3 각자 llama-server, 컨텍스트 12개를 Zipf로 요청, jetson이 수집 쓰기 | KV 배치: Lustre 기본 할당 / IFLustre식 OSS 부하 기반 / 소비 노드 배치 | TTFT p50·p99, 처리량, 노드별 I/O | jetson1–3 client 마운트, 프로토타입 `kv_router.py` | 40분 |
+| M14 | 사용 노드·연산 부하를 무시한 배치가 TTFT를 얼마나 늘리는가 (작은 end-to-end) | jetson1–3 각자 llama-server, 컨텍스트 12개를 Zipf로 요청, jetson이 수집 쓰기 | KV 배치: Lustre 기본 할당 / IFLustre식 OSS 부하 기반 / 사용 노드 배치 | TTFT p50·p99, 처리량, 노드별 I/O | jetson1–3 client 마운트, 프로토타입 `kv_router.py` | 40분 |
 
 ## 4. 진행 상황 (2026-10-22)
 
@@ -57,7 +57,7 @@ IFLustre 이점 유지는 평가에서도 확인한다. LLM이 없는 IoT 수집
 | M13 | 완료 | 레코드당 파일 약 220 rec/s, pack 6,642 rec/s(30배), MDS 요청 1/1,500 |
 | M5 재측정 | 완료 | 원격 I/O를 처리하는 OSS CPU 13%(읽기), 19%(쓰기). P0의 약 2%는 측정 오류 |
 | M8 재측정 | 완료 | 원격·로컬 저장 I/O 6조건 모두 LLM 감속 3% 이내. LLM 실행 중 로컬 direct 쓰기 −22% |
-| M14 | 완료 | TTFT p50: 소비 노드 0.79초, Lustre 기본 6.2초, 부하 분산(소비 위치 무시) 16.0초. p90 1.0 / 19.1 / 27.2초 |
+| M14 | 완료 | TTFT p50: 사용 노드 0.79초, Lustre 기본 6.2초, 부하 분산(사용 노드 무시) 16.0초. p90 1.0 / 19.1 / 27.2초 |
 
 ## 5. 실행 순서
 

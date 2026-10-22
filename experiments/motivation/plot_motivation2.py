@@ -215,8 +215,8 @@ def plot_m14(mode):
     for r in rows(R / "m14_cr0/m14.tsv"):
         d.setdefault(r["policy"], []).append(float(r["ttft_ms"]) / 1000)
     f, ax = fig(t, h=3.4)
-    for pol, lab, col in [("lustre_default", "Lustre default allocator", t["s"][1]), ("balanced", "Load-balanced across OSSes (consumer-blind)", t["s"][2]),
-                          ("local", "Consumer-local OST", t["s"][0])]:
+    for pol, lab, col in [("lustre_default", "Lustre default allocator", t["s"][1]), ("balanced", "Load-balanced across OSSes (ignores the using node)", t["s"][2]),
+                          ("local", "OST of the node that uses the KV", t["s"][0])]:
         if pol not in d: continue
         v = sorted(d[pol]); ys = [(i + 1) / len(v) for i in range(len(v))]
         ax.step(v, ys, where="post", color=col, linewidth=2, label=lab)

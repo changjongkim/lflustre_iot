@@ -40,7 +40,7 @@
 - KV 파일 크기는 토큰당 144KiB로 README 계산과 일치한다.
 - 원격 복원은 8k에서 prefill보다 느리다. 이때 원격 읽기 속도가 약 53MB/s로 회선 속도의 절반이었다.
 - 8k에서는 로컬 복원도 4k 대비 3.5배 느려졌다(크기는 2배). llama-server 실행 중 남은 메모리가 약 1.8GB여서, 1.15GB 파일을 page cache로 읽는 동안 메모리 회수가 일어난 것으로 추정한다.
-- 설계 반영: KV는 소비 노드 로컬에 둔다. 읽기 경로는 direct I/O나 캐시 해제로 page cache를 거치지 않게 한다. 원격 KV는 재계산과 비교해 선택한다(README 4.8.2절, `docs/design_details.md` 3.2절 2j).
+- 설계 반영: KV는 사용 노드 로컬에 둔다. 읽기 경로는 direct I/O나 캐시 해제로 page cache를 거치지 않게 한다. 원격 KV는 재계산과 비교해 선택한다(README 4.8.2절, `docs/design_details.md` 3.2절 2j).
 
 ### ③ Lustre client 캐시와 GPU 메모리 할당 (jetson1, 256MiB 단위 cudaMalloc + memset)
 
